@@ -1,0 +1,14 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+pydantic==2.5.0
+python-multipart==0.0.6
+scapy==2.5.0
+python-nmap==0.7.1
+psutil==5.9.6
+websockets==12.0
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.25.2
+schedule==1.2.0
+cryptography==45.0.5 
