@@ -8,12 +8,13 @@ import logging
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, thread
+import threading
 import nmap
 from scapy.all import ARP, Ether, srp
 import psutil
-from database import get_db
-from models import Device, DeviceStatus, DeviceType, OperatingSystem
+from backend.database import get_db
+from backend.models import Device, DeviceStatus, DeviceType, OperatingSystem
 
 logger = logging.getLogger(__name__)
 
@@ -237,41 +238,67 @@ class NetworkScanner:
         
         return None
     
+    def _detect_service(self, port: int, banner: str) -> str:
+        """AI-powered (heuristic) service detection based on port and banner"""
+        banner_l = (banner or '').lower()
+        if 'ssh' in banner_l:
+            return 'SSH'
+        if 'http' in banner_l:
+            return 'HTTP'
+        if 'smtp' in banner_l:
+            return 'SMTP'
+        if 'ftp' in banner_l:
+            return 'FTP'
+        if 'rdp' in banner_l or 'remote desktop' in banner_l:
+            return 'RDP'
+        if 'telnet' in banner_l:
+            return 'Telnet'
+        # Fallback to port mapping
+        common_ports = {22: 'SSH', 80: 'HTTP', 443: 'HTTPS', 21: 'FTP', 25: 'SMTP', 3389: 'RDP', 23: 'Telnet'}
+        return common_ports.get(port, 'Unknown')
+
     async def _port_scan_devices(self, devices: List[Dict[str, Any]]):
-        """Perform port scan on discovered devices"""
+        """Perform port scan on discovered devices, grab banners, and detect services using a thread pool for concurrency. Threads are daemonized for responsive shutdown."""
         logger.info("Starting port scan...")
-        
+        loop = asyncio.get_event_loop()
         for device in devices:
             if self.stop_scan_event.is_set():
                 break
-            
             try:
                 ip = device["ip_address"]
                 open_ports = []
-                
-                # Scan common ports
-                for port in self.scan_ports:
+                def scan_port(port):
                     if self.stop_scan_event.is_set():
-                        break
-                    
+                        return None
                     try:
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         sock.settimeout(1)
                         result = sock.connect_ex((ip, port))
-                        sock.close()
-                        
+                        banner = ''
                         if result == 0:
-                            open_ports.append(port)
-                            logger.debug(f"Port {port} open on {ip}")
-                    
+                            try:
+                                sock.settimeout(2)
+                                banner = sock.recv(1024).decode(errors='ignore').strip()
+                            except Exception:
+                                banner = ''
+                            service = self._detect_service(port, banner)
+                            logger.debug(f"Port {port} open on {ip} - Service: {service} - Banner: {banner}")
+                            return {'port': port, 'service': service, 'banner': banner}
+                        sock.close()
                     except Exception as e:
                         logger.debug(f"Error scanning port {port} on {ip}: {e}")
-                
+                    return None
+                class DaemonThreadPoolExecutor(ThreadPoolExecutor):
+                    def _thread_factory(self, *args, **kwargs):
+                        t = threading.Thread(*args, **kwargs)
+                        t.daemon = True
+                        return t
+                with DaemonThreadPoolExecutor(max_workers=16) as executor:
+                    futures = [loop.run_in_executor(executor, scan_port, port) for port in self.scan_ports]
+                    results = await asyncio.gather(*futures)
+                    open_ports = [r for r in results if r]
                 device["open_ports"] = json.dumps(open_ports)
-                
-                # Determine device type based on open ports
-                device["device_type"] = self._determine_device_type(open_ports)
-                
+                device["device_type"] = self._determine_device_type([p['port'] for p in open_ports])
             except Exception as e:
                 logger.error(f"Error port scanning {device.get('ip_address', 'unknown')}: {e}")
     
@@ -289,16 +316,14 @@ class NetworkScanner:
             return DeviceType.COMPUTER
     
     async def _detect_operating_systems(self, devices: List[Dict[str, Any]]):
-        """Detect operating systems of discovered devices"""
+        """Detect operating systems of discovered devices using a thread pool for concurrency."""
         logger.info("Starting OS detection...")
-        
-        for device in devices:
-            if self.stop_scan_event.is_set():
-                break
-            
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        def detect_os(device):
             try:
                 ip = device["ip_address"]
-                
                 # Use nmap for OS detection (if available)
                 if self.nmap_scanner:
                     try:
@@ -332,16 +357,25 @@ class NetworkScanner:
                                 device["operating_system"] = OperatingSystem.UNKNOWN
                     except Exception as e:
                         logger.debug(f"Fallback OS detection failed for {ip}: {e}")
-                
                 # Try to get hostname
                 try:
                     hostname = socket.gethostbyaddr(ip)[0]
                     device["hostname"] = hostname
                 except Exception as e:
                     logger.debug(f"Hostname resolution failed for {ip}: {e}")
-                
             except Exception as e:
                 logger.error(f"Error in OS detection for {device.get('ip_address', 'unknown')}: {e}")
+
+        class DaemonThreadPoolExecutor(ThreadPoolExecutor):
+            def _thread_factory(self, *args, **kwargs):
+                t = threading.Thread(*args, **kwargs)
+                t.daemon = True
+                return t
+
+        with DaemonThreadPoolExecutor(max_workers=16) as executor:
+            futures = [executor.submit(detect_os, device) for device in devices]
+            for future in futures:
+                future.result()  # Wait for all to complete
     
     async def _save_devices(self, devices: List[Dict[str, Any]]):
         """Save discovered devices to database"""

@@ -1,9 +1,36 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum
 from sqlalchemy.sql import func
-from database import Base
+from backend.database import Base
 import enum
 from datetime import datetime
 from typing import Dict, Any
+import os
+from cryptography.fernet import Fernet
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+
+# Create a persistent Fernet key for password encryption
+def get_or_create_fernet_key():
+    """Get existing Fernet key or create a new one and save it"""
+    key_file = os.path.join(os.path.dirname(__file__), 'fernet.key')
+    
+    # Try to load existing key from environment variable first
+    env_key = os.environ.get('FERNET_KEY')
+    if env_key:
+        return env_key.encode() if isinstance(env_key, str) else env_key
+    
+    # Try to load existing key from file
+    if os.path.exists(key_file):
+        with open(key_file, 'rb') as f:
+            return f.read()
+    
+    # Generate new key and save it
+    key = Fernet.generate_key()
+    with open(key_file, 'wb') as f:
+        f.write(key)
+    return key
+
+FERNET_KEY = get_or_create_fernet_key()
+fernet = Fernet(FERNET_KEY)
 
 class DeviceStatus(enum.Enum):
     ONLINE = "online"
@@ -71,10 +98,22 @@ class Device(Base):
     serial_number = Column(String(255))
     location = Column(String(255))
     notes = Column(Text)
-    
+
+    # SSH credentials
+    ssh_username = Column(String(255))
+    ssh_password_enc = Column(String(255))  # Encrypted password
+
     # Timestamps
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    def set_ssh_password(self, password: str):
+        self.ssh_password_enc = fernet.encrypt(password.encode()).decode()
+
+    def get_ssh_password(self) -> str:
+        if self.ssh_password_enc is not None:
+            return fernet.decrypt(self.ssh_password_enc.encode()).decode()
+        return ''
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert device to dictionary"""
@@ -100,26 +139,28 @@ class Device(Base):
             "serial_number": self.serial_number,
             "location": self.location,
             "notes": self.notes,
+            "ssh_username": self.ssh_username,
+            "ssh_password": '********' if self.ssh_password_enc is not None and not isinstance(self.ssh_password_enc, InstrumentedAttribute) and bool(self.ssh_password_enc) else '',
         }
         
         # Handle enum values
-        if self.device_type:
+        if self.device_type is not None and not isinstance(self.device_type, InstrumentedAttribute):
             result["device_type"] = self.device_type.value
-        if self.operating_system:
+        if self.operating_system is not None and not isinstance(self.operating_system, InstrumentedAttribute):
             result["operating_system"] = self.operating_system.value
-        if self.status:
+        if self.status is not None and not isinstance(self.status, InstrumentedAttribute):
             result["status"] = self.status.value
             
         # Handle datetime values
-        if self.last_security_scan:
+        if self.last_security_scan is not None and not isinstance(self.last_security_scan, InstrumentedAttribute):
             result["last_security_scan"] = self.last_security_scan.isoformat()
-        if self.last_seen:
+        if self.last_seen is not None and not isinstance(self.last_seen, InstrumentedAttribute):
             result["last_seen"] = self.last_seen.isoformat()
-        if self.first_seen:
+        if self.first_seen is not None and not isinstance(self.first_seen, InstrumentedAttribute):
             result["first_seen"] = self.first_seen.isoformat()
-        if self.created_at:
+        if self.created_at is not None and not isinstance(self.created_at, InstrumentedAttribute):
             result["created_at"] = self.created_at.isoformat()
-        if self.updated_at:
+        if self.updated_at is not None and not isinstance(self.updated_at, InstrumentedAttribute):
             result["updated_at"] = self.updated_at.isoformat()
             
         return result

@@ -46,6 +46,9 @@ export const deviceAPI = {
   securityScanDevice: (id: number) => api.post(`/api/devices/${id}/security-scan`),
   updateDevice: (id: number, data: any) => api.put(`/api/devices/${id}`, data),
   
+  // AI-powered patching
+  aiPatchDevice: (id: number) => api.post(`/api/devices/${id}/ai-patch`),
+  
   // Get scan status
   getScanStatus: () => api.get('/api/scan/status'),
   

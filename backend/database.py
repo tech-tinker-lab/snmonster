@@ -46,6 +46,11 @@ async def init_db():
         logger.error(f"Database initialization error: {e}")
         raise
 
+def drop_and_recreate_all():
+    """Drop all tables and recreate the schema from models. For development use only!"""
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
 def close_db(db: Session):
     """Close database session"""
     try:

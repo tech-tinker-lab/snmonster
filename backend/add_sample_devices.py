@@ -11,8 +11,8 @@ from datetime import datetime
 # Add the backend directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import init_db, get_db
-from models import Device, DeviceStatus, DeviceType, OperatingSystem
+from backend.database import init_db, get_db, drop_and_recreate_all
+from backend.models import Device, DeviceStatus, DeviceType, OperatingSystem
 
 async def add_sample_devices():
     """Add sample devices to the database"""
@@ -173,4 +173,6 @@ async def add_sample_devices():
             db.close()
 
 if __name__ == "__main__":
+    # For dev: drop and recreate schema before adding devices
+    drop_and_recreate_all()
     asyncio.run(add_sample_devices()) 
