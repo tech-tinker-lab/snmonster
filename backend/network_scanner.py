@@ -13,8 +13,9 @@ import threading
 import nmap
 from scapy.all import ARP, Ether, srp
 import psutil
-from backend.database import get_db
-from backend.models import Device, DeviceStatus, DeviceType, OperatingSystem
+from database import get_db
+from models import Device, DeviceStatus, DeviceType, OperatingSystem
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ class NetworkScanner:
         self.scan_task = None
         self.stop_scan_event = asyncio.Event()
         
-        # Network configuration
-        self.network_range = self._get_network_range()
+        # Network configuration - can be overridden by environment variable
+        self.network_range = os.environ.get('NETWORK_RANGE') or self._get_network_range()
         self.scan_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, 8080, 8443]
         
         # Initialize nmap scanner (optional)
@@ -46,17 +47,65 @@ class NetworkScanner:
     def _get_network_range(self) -> str:
         """Get the local network range"""
         try:
-            # Get default gateway interface
+            # Get all network interfaces
             gateways = psutil.net_if_addrs()
+            preferred_networks = []
+            other_networks = []
+            
             for interface, addrs in gateways.items():
+                # Skip virtual interfaces and loopback
+                if any(skip in interface.lower() for skip in ['vmware', 'virtualbox', 'hyper-v', 'vbox', 'loopback']):
+                    continue
+                    
                 for addr in addrs:
                     if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
                         ip = ipaddress.IPv4Address(addr.address)
                         network = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}", strict=False)
-                        return str(network)
+                        
+                        # Prioritize common local network ranges
+                        if (ip.is_private and 
+                            not ip.is_loopback and 
+                            not ip.is_link_local and
+                            not ip.is_multicast):
+                            
+                            # Prefer common home/office network ranges
+                            if (str(network).startswith('192.168.1.') or 
+                                str(network).startswith('192.168.0.') or
+                                str(network).startswith('10.0.') or
+                                str(network).startswith('172.16.') or
+                                str(network).startswith('172.17.') or
+                                str(network).startswith('172.18.') or
+                                str(network).startswith('172.19.') or
+                                str(network).startswith('172.20.') or
+                                str(network).startswith('172.21.') or
+                                str(network).startswith('172.22.') or
+                                str(network).startswith('172.23.') or
+                                str(network).startswith('172.24.') or
+                                str(network).startswith('172.25.') or
+                                str(network).startswith('172.26.') or
+                                str(network).startswith('172.27.') or
+                                str(network).startswith('172.28.') or
+                                str(network).startswith('172.29.') or
+                                str(network).startswith('172.30.') or
+                                str(network).startswith('172.31.')):
+                                preferred_networks.append((str(network), interface))
+                            else:
+                                other_networks.append((str(network), interface))
             
-            # Fallback to common local ranges
+            # Return the first preferred network, or first other network, or fallback
+            if preferred_networks:
+                selected_network, interface = preferred_networks[0]
+                logger.info(f"Selected network {selected_network} from interface {interface}")
+                return selected_network
+            elif other_networks:
+                selected_network, interface = other_networks[0]
+                logger.info(f"Selected network {selected_network} from interface {interface} (fallback)")
+                return selected_network
+            
+            # Final fallback to common local ranges
+            logger.warning("No suitable network interface found, using fallback")
             return "192.168.1.0/24"
+            
         except Exception as e:
             logger.error(f"Error getting network range: {e}")
             return "192.168.1.0/24"

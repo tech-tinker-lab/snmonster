@@ -11,8 +11,8 @@ from datetime import datetime
 # Add the backend directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from backend.database import init_db, get_db, drop_and_recreate_all
-from backend.models import Device, DeviceStatus, DeviceType, OperatingSystem
+from database import init_db, get_db, drop_and_recreate_all
+from models import Device, DeviceStatus, DeviceType, OperatingSystem
 
 async def add_sample_devices():
     """Add sample devices to the database"""

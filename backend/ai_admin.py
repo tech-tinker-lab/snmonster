@@ -3,8 +3,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import asyncio
-from backend.database import get_db
-from backend.models import Device, SecurityVulnerability, SystemPatch, DeviceStatus
+from database import get_db
+from models import Device, SecurityVulnerability, SystemPatch, DeviceStatus
 
 logger = logging.getLogger(__name__)
 

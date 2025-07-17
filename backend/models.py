@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, Table
 from sqlalchemy.sql import func
-from backend.database import Base
+from sqlalchemy.orm import relationship
+from database import Base
 import enum
 from datetime import datetime
 from typing import Dict, Any
@@ -56,6 +57,324 @@ class OperatingSystem(enum.Enum):
     IOS = "ios"
     UNKNOWN = "unknown"
 
+class BoundaryType(enum.Enum):
+    NETWORK = "network"
+    GEOGRAPHIC = "geographic"
+    ORGANIZATIONAL = "organizational"
+    FUNCTIONAL = "functional"
+    SECURITY = "security"
+
+class NamespaceStatus(enum.Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    MAINTENANCE = "maintenance"
+    DEPLOYING = "deploying"
+
+class PodStatus(enum.Enum):
+    RUNNING = "running"
+    STOPPED = "stopped"
+    ERROR = "error"
+    DEPLOYING = "deploying"
+    SCALING = "scaling"
+
+class NodeStatus(enum.Enum):
+    READY = "ready"
+    NOT_READY = "not_ready"
+    MAINTENANCE = "maintenance"
+    OFFLINE = "offline"
+
+# Association tables for many-to-many relationships
+device_boundary_association = Table(
+    'device_boundary_association',
+    Base.metadata,
+    Column('device_id', Integer, ForeignKey('devices.id')),
+    Column('boundary_id', Integer, ForeignKey('virtual_boundaries.id'))
+)
+
+boundary_namespace_association = Table(
+    'boundary_namespace_association',
+    Base.metadata,
+    Column('boundary_id', Integer, ForeignKey('virtual_boundaries.id')),
+    Column('namespace_id', Integer, ForeignKey('namespaces.id'))
+)
+
+class VirtualBoundary(Base):
+    __tablename__ = "virtual_boundaries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    description = Column(Text)
+    boundary_type = Column(Enum(BoundaryType), default=BoundaryType.NETWORK)
+    
+    # Network configuration
+    network_range = Column(String(18))  # CIDR notation
+    gateway = Column(String(15))
+    dns_servers = Column(Text)  # JSON string
+    
+    # Security settings
+    isolation_level = Column(String(50), default="standard")  # standard, strict, permissive
+    firewall_rules = Column(Text)  # JSON string of firewall rules
+    access_policies = Column(Text)  # JSON string of access policies
+    
+    # Metadata
+    tags = Column(Text)  # JSON string of tags
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    devices = relationship("Device", secondary=device_boundary_association, back_populates="boundaries")
+    namespaces = relationship("Namespace", secondary=boundary_namespace_association, back_populates="boundaries")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "boundary_type": self.boundary_type.value if self.boundary_type else None,
+            "network_range": self.network_range,
+            "gateway": self.gateway,
+            "dns_servers": self.dns_servers,
+            "isolation_level": self.isolation_level,
+            "firewall_rules": self.firewall_rules,
+            "access_policies": self.access_policies,
+            "tags": self.tags,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "device_count": len(self.devices) if self.devices else 0,
+            "namespace_count": len(self.namespaces) if self.namespaces else 0
+        }
+
+class Namespace(Base):
+    __tablename__ = "namespaces"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    display_name = Column(String(255))
+    description = Column(Text)
+    status = Column(Enum(NamespaceStatus), default=NamespaceStatus.ACTIVE)
+    
+    # Resource limits
+    cpu_limit = Column(Float, default=0.0)  # CPU cores
+    memory_limit = Column(Float, default=0.0)  # Memory in GB
+    storage_limit = Column(Float, default=0.0)  # Storage in GB
+    
+    # Network isolation
+    network_policy = Column(Text)  # JSON string of network policies
+    ingress_rules = Column(Text)  # JSON string of ingress rules
+    egress_rules = Column(Text)  # JSON string of egress rules
+    
+    # Security
+    security_context = Column(Text)  # JSON string of security context
+    service_account = Column(String(255))
+    
+    # Metadata
+    labels = Column(Text)  # JSON string of labels
+    annotations = Column(Text)  # JSON string of annotations
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    boundaries = relationship("VirtualBoundary", secondary=boundary_namespace_association, back_populates="namespaces")
+    service_pods = relationship("ServicePod", back_populates="namespace")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "display_name": self.display_name,
+            "description": self.description,
+            "status": self.status.value if self.status else None,
+            "cpu_limit": self.cpu_limit,
+            "memory_limit": self.memory_limit,
+            "storage_limit": self.storage_limit,
+            "network_policy": self.network_policy,
+            "ingress_rules": self.ingress_rules,
+            "egress_rules": self.egress_rules,
+            "security_context": self.security_context,
+            "service_account": self.service_account,
+            "labels": self.labels,
+            "annotations": self.annotations,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "pod_count": len(self.service_pods) if self.service_pods else 0
+        }
+
+class Node(Base):
+    __tablename__ = "nodes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    hostname = Column(String(255))
+    ip_address = Column(String(15), unique=True, nullable=False)
+    status = Column(Enum(NodeStatus), default=NodeStatus.READY)
+    
+    # Hardware specifications
+    cpu_cores = Column(Integer, default=0)
+    cpu_model = Column(String(255))
+    memory_gb = Column(Float, default=0.0)
+    storage_gb = Column(Float, default=0.0)
+    
+    # Operating system
+    os_type = Column(String(50))
+    os_version = Column(String(100))
+    kernel_version = Column(String(100))
+    
+    # Network information
+    network_interfaces = Column(Text)  # JSON string of network interfaces
+    mac_address = Column(String(17))
+    
+    # Resource usage
+    cpu_usage = Column(Float, default=0.0)
+    memory_usage = Column(Float, default=0.0)
+    storage_usage = Column(Float, default=0.0)
+    
+    # Labels and taints
+    labels = Column(Text)  # JSON string of labels
+    taints = Column(Text)  # JSON string of taints
+    
+    # Metadata
+    location = Column(String(255))
+    rack = Column(String(100))
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    service_pods = relationship("ServicePod", back_populates="node")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "hostname": self.hostname,
+            "ip_address": self.ip_address,
+            "status": self.status.value if self.status else None,
+            "cpu_cores": self.cpu_cores,
+            "cpu_model": self.cpu_model,
+            "memory_gb": self.memory_gb,
+            "storage_gb": self.storage_gb,
+            "os_type": self.os_type,
+            "os_version": self.os_version,
+            "kernel_version": self.kernel_version,
+            "network_interfaces": self.network_interfaces,
+            "mac_address": self.mac_address,
+            "cpu_usage": self.cpu_usage,
+            "memory_usage": self.memory_usage,
+            "storage_usage": self.storage_usage,
+            "labels": self.labels,
+            "taints": self.taints,
+            "location": self.location,
+            "rack": self.rack,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "pod_count": len(self.service_pods) if self.service_pods else 0
+        }
+
+class ServicePod(Base):
+    __tablename__ = "service_pods"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    display_name = Column(String(255))
+    description = Column(Text)
+    status = Column(Enum(PodStatus), default=PodStatus.STOPPED)
+    
+    # Container configuration
+    image = Column(String(500), nullable=False)
+    image_tag = Column(String(100), default="latest")
+    container_port = Column(Integer, default=80)
+    host_port = Column(Integer)
+    
+    # Resource requirements
+    cpu_request = Column(Float, default=0.1)
+    cpu_limit = Column(Float, default=0.5)
+    memory_request = Column(Float, default=0.1)  # GB
+    memory_limit = Column(Float, default=0.5)  # GB
+    
+    # Environment variables
+    environment_vars = Column(Text)  # JSON string of environment variables
+    config_maps = Column(Text)  # JSON string of config maps
+    secrets = Column(Text)  # JSON string of secrets
+    
+    # Networking
+    service_type = Column(String(50), default="ClusterIP")  # ClusterIP, NodePort, LoadBalancer
+    external_ip = Column(String(15))
+    load_balancer_ip = Column(String(15))
+    
+    # Health checks
+    health_check_path = Column(String(255), default="/health")
+    health_check_port = Column(Integer)
+    readiness_probe = Column(Text)  # JSON string of readiness probe
+    liveness_probe = Column(Text)  # JSON string of liveness probe
+    
+    # Scaling
+    replicas = Column(Integer, default=1)
+    min_replicas = Column(Integer, default=1)
+    max_replicas = Column(Integer, default=10)
+    autoscaling_enabled = Column(Boolean, default=False)
+    
+    # Security
+    security_context = Column(Text)  # JSON string of security context
+    service_account = Column(String(255))
+    
+    # Metadata
+    labels = Column(Text)  # JSON string of labels
+    annotations = Column(Text)  # JSON string of annotations
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Foreign keys
+    namespace_id = Column(Integer, ForeignKey('namespaces.id'))
+    node_id = Column(Integer, ForeignKey('nodes.id'))
+    
+    # Relationships
+    namespace = relationship("Namespace", back_populates="service_pods")
+    node = relationship("Node", back_populates="service_pods")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "display_name": self.display_name,
+            "description": self.description,
+            "status": self.status.value if self.status else None,
+            "image": self.image,
+            "image_tag": self.image_tag,
+            "container_port": self.container_port,
+            "host_port": self.host_port,
+            "cpu_request": self.cpu_request,
+            "cpu_limit": self.cpu_limit,
+            "memory_request": self.memory_request,
+            "memory_limit": self.memory_limit,
+            "environment_vars": self.environment_vars,
+            "config_maps": self.config_maps,
+            "secrets": self.secrets,
+            "service_type": self.service_type,
+            "external_ip": self.external_ip,
+            "load_balancer_ip": self.load_balancer_ip,
+            "health_check_path": self.health_check_path,
+            "health_check_port": self.health_check_port,
+            "readiness_probe": self.readiness_probe,
+            "liveness_probe": self.liveness_probe,
+            "replicas": self.replicas,
+            "min_replicas": self.min_replicas,
+            "max_replicas": self.max_replicas,
+            "autoscaling_enabled": self.autoscaling_enabled,
+            "security_context": self.security_context,
+            "service_account": self.service_account,
+            "labels": self.labels,
+            "annotations": self.annotations,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "namespace_id": self.namespace_id,
+            "node_id": self.node_id
+        }
+
 class Device(Base):
     __tablename__ = "devices"
     
@@ -106,6 +425,9 @@ class Device(Base):
     # Timestamps
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    boundaries = relationship("VirtualBoundary", secondary=device_boundary_association, back_populates="devices")
 
     def set_ssh_password(self, password: str):
         self.ssh_password_enc = fernet.encrypt(password.encode()).decode()
@@ -150,19 +472,10 @@ class Device(Base):
             result["operating_system"] = self.operating_system.value
         if self.status is not None and not isinstance(self.status, InstrumentedAttribute):
             result["status"] = self.status.value
-            
-        # Handle datetime values
-        if self.last_security_scan is not None and not isinstance(self.last_security_scan, InstrumentedAttribute):
-            result["last_security_scan"] = self.last_security_scan.isoformat()
-        if self.last_seen is not None and not isinstance(self.last_seen, InstrumentedAttribute):
-            result["last_seen"] = self.last_seen.isoformat()
-        if self.first_seen is not None and not isinstance(self.first_seen, InstrumentedAttribute):
-            result["first_seen"] = self.first_seen.isoformat()
-        if self.created_at is not None and not isinstance(self.created_at, InstrumentedAttribute):
-            result["created_at"] = self.created_at.isoformat()
-        if self.updated_at is not None and not isinstance(self.updated_at, InstrumentedAttribute):
-            result["updated_at"] = self.updated_at.isoformat()
-            
+        
+        # Add boundary information
+        result["boundaries"] = [boundary.to_dict() for boundary in self.boundaries] if self.boundaries else []
+        
         return result
 
 class NetworkScan(Base):

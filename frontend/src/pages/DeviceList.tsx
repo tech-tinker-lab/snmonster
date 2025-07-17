@@ -50,7 +50,9 @@ import {
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useNavigate } from 'react-router-dom';
 import { deviceAPI } from '../services/api';
-import XTermTerminal, { XTermTerminalHandle } from '../components/XTermTerminal';
+import XTermTerminal, {
+  XTermTerminalHandle,
+} from '../components/XTermTerminal';
 
 interface Device {
   id: number;
@@ -85,7 +87,14 @@ const TERMINAL_STATES = {
 
 const DeviceList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<'ip_address' | 'hostname' | 'device_type' | 'operating_system' | 'ai_risk_score' | 'last_seen'>('ip_address');
+  const [sortField, setSortField] = useState<
+    | 'ip_address'
+    | 'hostname'
+    | 'device_type'
+    | 'operating_system'
+    | 'ai_risk_score'
+    | 'last_seen'
+  >('ip_address');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -93,17 +102,28 @@ const DeviceList: React.FC = () => {
   const [osFilter, setOsFilter] = useState<string>('all');
   const [ipStart, setIpStart] = useState('');
   const [ipEnd, setIpEnd] = useState('');
-  const [actionDialog, setActionDialog] = useState<{ open: boolean; type: string; device: Device | null }>({
+  const [actionDialog, setActionDialog] = useState<{
+    open: boolean;
+    type: string;
+    device: Device | null;
+  }>({
     open: false,
     type: '',
-    device: null
+    device: null,
   });
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'info';
+  }>({
     open: false,
     message: '',
-    severity: 'info'
+    severity: 'info',
   });
-  const [shellDialog, setShellDialog] = useState<{ open: boolean; device: Device | null }>({ open: false, device: null });
+  const [shellDialog, setShellDialog] = useState<{
+    open: boolean;
+    device: Device | null;
+  }>({ open: false, device: null });
   const [aiPatchLoading, setAiPatchLoading] = useState(false);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
   const [bulkSshDialog, setBulkSshDialog] = useState(false);
@@ -116,7 +136,7 @@ const DeviceList: React.FC = () => {
   const [terminalState, setTerminalState] = useState(TERMINAL_STATES.IDLE);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [terminalInitFailed, setTerminalInitFailed] = useState(false);
-  
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const terminalRef = useRef<XTermTerminalHandle>(null);
@@ -139,8 +159,11 @@ const DeviceList: React.FC = () => {
         queryClient.invalidateQueries('devices');
       },
       onError: (error: any) => {
-        showSnackbar(error.response?.data?.detail || 'Failed to ping device', 'error');
-      }
+        showSnackbar(
+          error.response?.data?.detail || 'Failed to ping device',
+          'error'
+        );
+      },
     }
   );
 
@@ -152,8 +175,11 @@ const DeviceList: React.FC = () => {
         queryClient.invalidateQueries('devices');
       },
       onError: (error: any) => {
-        showSnackbar(error.response?.data?.detail || 'Failed to scan ports', 'error');
-      }
+        showSnackbar(
+          error.response?.data?.detail || 'Failed to scan ports',
+          'error'
+        );
+      },
     }
   );
 
@@ -165,31 +191,38 @@ const DeviceList: React.FC = () => {
         queryClient.invalidateQueries('devices');
       },
       onError: (error: any) => {
-        showSnackbar(error.response?.data?.detail || 'Failed to perform security scan', 'error');
-      }
+        showSnackbar(
+          error.response?.data?.detail || 'Failed to perform security scan',
+          'error'
+        );
+      },
     }
   );
 
   const devices: Device[] = devicesData?.devices || [];
 
   // Helper to compare IPs as numbers
-  const ipToNumber = (ip: string) => ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
+  const ipToNumber = (ip: string) =>
+    ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
 
   // Filtering
-  const filteredDevices = devices.filter(device => {
+  const filteredDevices = devices.filter((device) => {
     // Search term
     const matchesSearch =
       device.ip_address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (device.hostname && device.hostname.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (device.hostname &&
+        device.hostname.toLowerCase().includes(searchTerm.toLowerCase())) ||
       device.device_type.toLowerCase().includes(searchTerm.toLowerCase());
     // OS filter
-    const matchesOs = osFilter === 'all' || device.operating_system === osFilter;
+    const matchesOs =
+      osFilter === 'all' || device.operating_system === osFilter;
     // IP range filter
     let matchesIpRange = true;
     if (ipStart && ipEnd) {
       try {
         const ipNum = ipToNumber(device.ip_address);
-        matchesIpRange = ipToNumber(ipStart) <= ipNum && ipNum <= ipToNumber(ipEnd);
+        matchesIpRange =
+          ipToNumber(ipStart) <= ipNum && ipNum <= ipToNumber(ipEnd);
       } catch {
         matchesIpRange = true;
       }
@@ -268,7 +301,10 @@ const DeviceList: React.FC = () => {
     setActionDialog({ open: true, type: 'details', device });
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, device: Device) => {
+  const handleMenuOpen = (
+    event: React.MouseEvent<HTMLElement>,
+    device: Device
+  ) => {
     setAnchorEl(event.currentTarget);
     setMenuDevice(device);
   };
@@ -278,7 +314,10 @@ const DeviceList: React.FC = () => {
     setMenuDevice(null);
   };
 
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
+  const showSnackbar = (
+    message: string,
+    severity: 'success' | 'error' | 'info'
+  ) => {
     setSnackbar({ open: true, message, severity });
   };
 
@@ -291,31 +330,31 @@ const DeviceList: React.FC = () => {
       label: 'View Details',
       icon: <InfoIcon />,
       action: handleViewDetails,
-      color: 'primary'
+      color: 'primary',
     },
     {
       label: 'Ping Device',
       icon: <PingIcon />,
       action: handlePing,
-      color: 'info'
+      color: 'info',
     },
     {
       label: 'Scan Ports',
       icon: <NetworkCheckIcon />,
       action: handlePortScan,
-      color: 'secondary'
+      color: 'secondary',
     },
     {
       label: 'Security Scan',
       icon: <SecurityIcon />,
       action: handleSecurityScan,
-      color: 'warning'
+      color: 'warning',
     },
     {
       label: 'Edit Device',
       icon: <EditIcon />,
       action: handleEdit,
-      color: 'primary'
+      color: 'primary',
     },
     {
       label: 'Shell',
@@ -332,7 +371,10 @@ const DeviceList: React.FC = () => {
           const res = await deviceAPI.aiPatchDevice(device.id);
           showSnackbar(res.data.message, 'success');
         } catch (e: any) {
-          showSnackbar(e?.response?.data?.detail || 'Failed to trigger AI patching', 'error');
+          showSnackbar(
+            e?.response?.data?.detail || 'Failed to trigger AI patching',
+            'error'
+          );
         } finally {
           setAiPatchLoading(false);
         }
@@ -362,11 +404,17 @@ const DeviceList: React.FC = () => {
   };
 
   // Get unique OS options
-  const osOptions = Array.from(new Set(devices.map(d => d.operating_system).filter(Boolean)));
+  const osOptions = Array.from(
+    new Set(devices.map((d) => d.operating_system).filter(Boolean))
+  );
 
   // When opening Edit Device dialog, prefill SSH fields
   useEffect(() => {
-    if (actionDialog.open && actionDialog.type === 'edit' && actionDialog.device) {
+    if (
+      actionDialog.open &&
+      actionDialog.type === 'edit' &&
+      actionDialog.device
+    ) {
       setEditSshUsername(actionDialog.device.ssh_username || '');
       setEditSshPassword(actionDialog.device.ssh_password ? '********' : '');
     }
@@ -374,28 +422,42 @@ const DeviceList: React.FC = () => {
 
   // Handle checkbox select
   const handleSelectDevice = (id: number) => {
-    setSelectedDeviceIds((prev) => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    setSelectedDeviceIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
   };
   const handleSelectAll = (checked: boolean) => {
-    setSelectedDeviceIds(checked ? devices.map(d => d.id) : []);
+    setSelectedDeviceIds(checked ? devices.map((d) => d.id) : []);
   };
 
   // Bulk SSH credential save
   const handleBulkSshSave = async () => {
     setBulkSaving(true);
     try {
-      await Promise.all(selectedDeviceIds.map(id => deviceAPI.updateDevice(id, {
-        ssh_username: bulkSshUsername,
-        ssh_password: bulkSshPassword,
-      })));
-      setSnackbar({ open: true, message: 'SSH credentials updated for selected devices!', severity: 'success' });
+      await Promise.all(
+        selectedDeviceIds.map((id) =>
+          deviceAPI.updateDevice(id, {
+            ssh_username: bulkSshUsername,
+            ssh_password: bulkSshPassword,
+          })
+        )
+      );
+      setSnackbar({
+        open: true,
+        message: 'SSH credentials updated for selected devices!',
+        severity: 'success',
+      });
       setBulkSshDialog(false);
       setBulkSshUsername('');
       setBulkSshPassword('');
       setSelectedDeviceIds([]);
       refetch();
     } catch {
-      setSnackbar({ open: true, message: 'Failed to update SSH credentials.', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: 'Failed to update SSH credentials.',
+        severity: 'error',
+      });
     } finally {
       setBulkSaving(false);
     }
@@ -412,11 +474,19 @@ const DeviceList: React.FC = () => {
         updateData.ssh_password = editSshPassword;
       }
       await deviceAPI.updateDevice(actionDialog.device.id, updateData);
-      setSnackbar({ open: true, message: 'SSH credentials updated!', severity: 'success' });
+      setSnackbar({
+        open: true,
+        message: 'SSH credentials updated!',
+        severity: 'success',
+      });
       setActionDialog({ ...actionDialog, open: false });
       refetch();
     } catch {
-      setSnackbar({ open: true, message: 'Failed to update SSH credentials.', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: 'Failed to update SSH credentials.',
+        severity: 'error',
+      });
     } finally {
       setEditSaving(false);
     }
@@ -424,7 +494,14 @@ const DeviceList: React.FC = () => {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 3,
+        }}
+      >
         <Typography variant="h4" component="h1">
           Network Devices
         </Typography>
@@ -440,19 +517,36 @@ const DeviceList: React.FC = () => {
       {/* Selected Machine for Monitoring */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Typography variant="h5" gutterBottom>Selected Machine for Monitoring</Typography>
+          <Typography variant="h5" gutterBottom>
+            Selected Machine for Monitoring
+          </Typography>
           {selectedDevice ? (
             <Box>
-              <Typography variant="subtitle1">{selectedDevice.hostname || selectedDevice.ip_address}</Typography>
-              <Typography variant="body2">IP: {selectedDevice.ip_address}</Typography>
-              <Typography variant="body2">Type: {selectedDevice.device_type}</Typography>
-              <Typography variant="body2">OS: {selectedDevice.operating_system}</Typography>
-              <Button variant="outlined" color="secondary" sx={{ mt: 1 }} onClick={() => setSelectedDevice(null)}>
+              <Typography variant="subtitle1">
+                {selectedDevice.hostname || selectedDevice.ip_address}
+              </Typography>
+              <Typography variant="body2">
+                IP: {selectedDevice.ip_address}
+              </Typography>
+              <Typography variant="body2">
+                Type: {selectedDevice.device_type}
+              </Typography>
+              <Typography variant="body2">
+                OS: {selectedDevice.operating_system}
+              </Typography>
+              <Button
+                variant="outlined"
+                color="secondary"
+                sx={{ mt: 1 }}
+                onClick={() => setSelectedDevice(null)}
+              >
                 Unselect
               </Button>
             </Box>
           ) : (
-            <Typography color="text.secondary">No machine selected for monitoring.</Typography>
+            <Typography color="text.secondary">
+              No machine selected for monitoring.
+            </Typography>
           )}
         </CardContent>
       </Card>
@@ -484,19 +578,21 @@ const DeviceList: React.FC = () => {
               size="small"
               label="OS"
               value={osFilter}
-              onChange={e => setOsFilter(e.target.value)}
+              onChange={(e) => setOsFilter(e.target.value)}
               sx={{ minWidth: 120 }}
             >
               <MenuItem value="all">All OS</MenuItem>
-              {osOptions.map(os => (
-                <MenuItem key={os} value={os}>{os}</MenuItem>
+              {osOptions.map((os) => (
+                <MenuItem key={os} value={os}>
+                  {os}
+                </MenuItem>
               ))}
             </TextField>
             <TextField
               size="small"
               label="Start IP"
               value={ipStart}
-              onChange={e => setIpStart(e.target.value)}
+              onChange={(e) => setIpStart(e.target.value)}
               placeholder="192.168.1.1"
               sx={{ minWidth: 130 }}
             />
@@ -504,7 +600,7 @@ const DeviceList: React.FC = () => {
               size="small"
               label="End IP"
               value={ipEnd}
-              onChange={e => setIpEnd(e.target.value)}
+              onChange={(e) => setIpEnd(e.target.value)}
               placeholder="192.168.1.254"
               sx={{ minWidth: 130 }}
             />
@@ -513,7 +609,7 @@ const DeviceList: React.FC = () => {
               size="small"
               label="Sort by"
               value={sortField}
-              onChange={e => setSortField(e.target.value as any)}
+              onChange={(e) => setSortField(e.target.value as any)}
               sx={{ minWidth: 120 }}
             >
               <MenuItem value="ip_address">IP Address</MenuItem>
@@ -537,9 +633,15 @@ const DeviceList: React.FC = () => {
                 <TableRow>
                   <TableCell padding="checkbox">
                     <Checkbox
-                      checked={selectedDeviceIds.length === devices.length && devices.length > 0}
-                      indeterminate={selectedDeviceIds.length > 0 && selectedDeviceIds.length < devices.length}
-                      onChange={e => handleSelectAll(e.target.checked)}
+                      checked={
+                        selectedDeviceIds.length === devices.length &&
+                        devices.length > 0
+                      }
+                      indeterminate={
+                        selectedDeviceIds.length > 0 &&
+                        selectedDeviceIds.length < devices.length
+                      }
+                      onChange={(e) => handleSelectAll(e.target.checked)}
                     />
                   </TableCell>
                   <TableCell>IP Address</TableCell>
@@ -556,7 +658,19 @@ const DeviceList: React.FC = () => {
               </TableHead>
               <TableBody>
                 {sortedDevices.map((device) => (
-                  <TableRow key={device.id}>
+                  <TableRow
+                    key={device.id}
+                    sx={{
+                      transition:
+                        'background 0.2s, box-shadow 0.2s, transform 0.15s',
+                      cursor: 'pointer',
+                      '&:hover, &:focus': {
+                        backgroundColor: 'rgba(0, 212, 170, 0.08)',
+                        boxShadow: 3,
+                        transform: 'scale(1.01)',
+                      },
+                    }}
+                  >
                     <TableCell padding="checkbox">
                       <Checkbox
                         checked={selectedDeviceIds.includes(device.id)}
@@ -568,17 +682,27 @@ const DeviceList: React.FC = () => {
                     <TableCell>{device.device_type}</TableCell>
                     <TableCell>{device.operating_system}</TableCell>
                     <TableCell>{device.status}</TableCell>
-                    <TableCell>{(device.ai_risk_score * 100).toFixed(0)}%</TableCell>
-                    <TableCell>{new Date(device.last_seen).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {(device.ai_risk_score * 100).toFixed(0)}%
+                    </TableCell>
+                    <TableCell>
+                      {new Date(device.last_seen).toLocaleString()}
+                    </TableCell>
                     <TableCell>
                       <Button
                         size="small"
-                        variant={selectedDevice?.id === device.id ? 'contained' : 'outlined'}
+                        variant={
+                          selectedDevice?.id === device.id
+                            ? 'contained'
+                            : 'outlined'
+                        }
                         color="primary"
                         onClick={() => setSelectedDevice(device)}
                         disabled={selectedDevice?.id === device.id}
                       >
-                        {selectedDevice?.id === device.id ? 'Monitoring' : 'Monitor'}
+                        {selectedDevice?.id === device.id
+                          ? 'Monitoring'
+                          : 'Monitor'}
                       </Button>
                     </TableCell>
                     <TableCell>
@@ -628,18 +752,22 @@ const DeviceList: React.FC = () => {
             disabled={
               (action.label === 'Ping Device' && pingMutation.isLoading) ||
               (action.label === 'Scan Ports' && portScanMutation.isLoading) ||
-              (action.label === 'Security Scan' && securityScanMutation.isLoading) ||
+              (action.label === 'Security Scan' &&
+                securityScanMutation.isLoading) ||
               (action.label === 'Shell' && false) || // Shell is handled by a separate dialog
-              (action.label === 'AI Automated OS & Security Patches' && aiPatchLoading)
+              (action.label === 'AI Automated OS & Security Patches' &&
+                aiPatchLoading)
             }
           >
             <ListItemIcon>{action.icon}</ListItemIcon>
             <ListItemText primary={action.label} />
             {(action.label === 'Ping Device' && pingMutation.isLoading) ||
-              (action.label === 'Scan Ports' && portScanMutation.isLoading) ||
-              (action.label === 'Security Scan' && securityScanMutation.isLoading) ||
-              (action.label === 'Shell' && false) || // Shell is handled by a separate dialog
-              (action.label === 'AI Automated OS & Security Patches' && aiPatchLoading) ? (
+            (action.label === 'Scan Ports' && portScanMutation.isLoading) ||
+            (action.label === 'Security Scan' &&
+              securityScanMutation.isLoading) ||
+            (action.label === 'Shell' && false) || // Shell is handled by a separate dialog
+            (action.label === 'AI Automated OS & Security Patches' &&
+              aiPatchLoading) ? (
               <CircularProgress size={16} />
             ) : null}
           </MenuItem>
@@ -659,24 +787,61 @@ const DeviceList: React.FC = () => {
         <DialogContent>
           {actionDialog.device && actionDialog.type === 'details' && (
             <Box>
-              <Typography variant="h6" gutterBottom>Device Information</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
-                <Typography><strong>IP Address:</strong> {actionDialog.device.ip_address}</Typography>
-                <Typography><strong>Hostname:</strong> {actionDialog.device.hostname || 'Unknown'}</Typography>
-                <Typography><strong>Device Type:</strong> {actionDialog.device.device_type}</Typography>
-                <Typography><strong>Operating System:</strong> {actionDialog.device.operating_system}</Typography>
-                <Typography><strong>Status:</strong> {actionDialog.device.status}</Typography>
-                <Typography><strong>Risk Score:</strong> {(actionDialog.device.ai_risk_score * 100).toFixed(1)}%</Typography>
+              <Typography variant="h6" gutterBottom>
+                Device Information
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 2,
+                  mb: 2,
+                }}
+              >
+                <Typography>
+                  <strong>IP Address:</strong> {actionDialog.device.ip_address}
+                </Typography>
+                <Typography>
+                  <strong>Hostname:</strong>{' '}
+                  {actionDialog.device.hostname || 'Unknown'}
+                </Typography>
+                <Typography>
+                  <strong>Device Type:</strong>{' '}
+                  {actionDialog.device.device_type}
+                </Typography>
+                <Typography>
+                  <strong>Operating System:</strong>{' '}
+                  {actionDialog.device.operating_system}
+                </Typography>
+                <Typography>
+                  <strong>Status:</strong> {actionDialog.device.status}
+                </Typography>
+                <Typography>
+                  <strong>Risk Score:</strong>{' '}
+                  {(actionDialog.device.ai_risk_score * 100).toFixed(1)}%
+                </Typography>
               </Box>
-              
-              <Typography variant="h6" gutterBottom>Security Information</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+
+              <Typography variant="h6" gutterBottom>
+                Security Information
+              </Typography>
+              <Box
+                sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}
+              >
                 <Box>
-                  <Typography><strong>Open Ports:</strong></Typography>
+                  <Typography>
+                    <strong>Open Ports:</strong>
+                  </Typography>
                   {(() => {
-                    let ports: { port: number; service: string; banner: string }[] = [];
+                    let ports: {
+                      port: number;
+                      service: string;
+                      banner: string;
+                    }[] = [];
                     try {
-                      ports = actionDialog.device.open_ports ? JSON.parse(actionDialog.device.open_ports) : [];
+                      ports = actionDialog.device.open_ports
+                        ? JSON.parse(actionDialog.device.open_ports)
+                        : [];
                     } catch {}
                     return ports.length > 0 ? (
                       <Table size="small" sx={{ mt: 1 }}>
@@ -692,7 +857,16 @@ const DeviceList: React.FC = () => {
                             <TableRow key={idx}>
                               <TableCell>{p.port}</TableCell>
                               <TableCell>{p.service}</TableCell>
-                              <TableCell style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.banner || '-'}</TableCell>
+                              <TableCell
+                                style={{
+                                  maxWidth: 200,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {p.banner || '-'}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -703,11 +877,15 @@ const DeviceList: React.FC = () => {
                   })()}
                 </Box>
                 <Box>
-                  <Typography><strong>Vulnerabilities:</strong></Typography>
+                  <Typography>
+                    <strong>Vulnerabilities:</strong>
+                  </Typography>
                   {(() => {
                     let vulns: any[] = [];
                     try {
-                      vulns = actionDialog.device.vulnerabilities ? JSON.parse(actionDialog.device.vulnerabilities) : [];
+                      vulns = actionDialog.device.vulnerabilities
+                        ? JSON.parse(actionDialog.device.vulnerabilities)
+                        : [];
                     } catch {}
                     return vulns.length > 0 ? (
                       <Table size="small" sx={{ mt: 1 }}>
@@ -725,7 +903,9 @@ const DeviceList: React.FC = () => {
                               <TableCell>{vuln.id || '-'}</TableCell>
                               <TableCell>{vuln.severity || '-'}</TableCell>
                               <TableCell>{vuln.description || '-'}</TableCell>
-                              <TableCell>{vuln.port != null ? vuln.port : '-'}</TableCell>
+                              <TableCell>
+                                {vuln.port != null ? vuln.port : '-'}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -740,20 +920,24 @@ const DeviceList: React.FC = () => {
           )}
           {actionDialog.type === 'edit' && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>SSH Credentials</Typography>
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                SSH Credentials
+              </Typography>
               <TextField
                 label="SSH Username"
                 value={editSshUsername}
-                onChange={e => setEditSshUsername(e.target.value)}
+                onChange={(e) => setEditSshUsername(e.target.value)}
                 sx={{ mb: 2, mr: 2 }}
               />
               <TextField
                 label="SSH Password"
                 type="password"
                 value={editSshPassword}
-                onChange={e => setEditSshPassword(e.target.value)}
+                onChange={(e) => setEditSshPassword(e.target.value)}
                 sx={{ mb: 2 }}
-                placeholder={actionDialog.device?.ssh_password ? '********' : ''}
+                placeholder={
+                  actionDialog.device?.ssh_password ? '********' : ''
+                }
               />
               <Button
                 variant="contained"
@@ -768,103 +952,150 @@ const DeviceList: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActionDialog({ open: false, type: '', device: null })}>
+          <Button
+            onClick={() =>
+              setActionDialog({ open: false, type: '', device: null })
+            }
+          >
             Close
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Shell Dialog */}
-      <Dialog 
-        open={shellDialog.open} 
+      <Dialog
+        open={shellDialog.open}
         onClose={() => {
           // Disconnect terminal before closing dialog
           terminalRef.current?.disconnect();
           setShellDialog({ open: false, device: null });
-        }} 
-        maxWidth="md" 
+        }}
+        maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Remote Shell - {shellDialog.device?.hostname || shellDialog.device?.ip_address}</DialogTitle>
+        <DialogTitle>
+          Remote Shell -{' '}
+          {shellDialog.device?.hostname || shellDialog.device?.ip_address}
+        </DialogTitle>
         <DialogContent style={{ display: 'flex', minHeight: 400 }}>
           {/* Sidebar for quick commands and automations */}
-          <Box sx={{ width: 200, pr: 2, borderRight: '1px solid #eee', display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Quick Commands</Typography>
-            {['ls', 'htop', 'df -h', 'cat /etc/os-release', 'sudo apt update'].map((cmd) => (
-              <Button key={cmd} size="small" variant="outlined" onClick={() => {
-                terminalRef.current?.write(cmd + '\r');
-              }}>{cmd}</Button>
+          <Box
+            sx={{
+              width: 200,
+              pr: 2,
+              borderRight: '1px solid #eee',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1,
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Quick Commands
+            </Typography>
+            {[
+              'ls',
+              'htop',
+              'df -h',
+              'cat /etc/os-release',
+              'sudo apt update',
+            ].map((cmd) => (
+              <Button
+                key={cmd}
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  terminalRef.current?.write(cmd + '\r');
+                }}
+              >
+                {cmd}
+              </Button>
             ))}
-            
+
             <Box sx={{ flexGrow: 1 }} />
-            
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>🚀 System Automation</Typography>
-            <Button 
-              size="small" 
-              variant="contained" 
-              color="primary" 
+
+            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+              🚀 System Automation
+            </Typography>
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
               onClick={() => {
-                terminalRef.current?.write('chmod +x /tmp/system_update.sh && /tmp/system_update.sh\r');
+                terminalRef.current?.write(
+                  'chmod +x /tmp/system_update.sh && /tmp/system_update.sh\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
               🔄 System Update
             </Button>
-            
-            <Button 
-              size="small" 
-              variant="contained" 
-              color="warning" 
+
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
               onClick={() => {
-                terminalRef.current?.write('chmod +x /tmp/security_audit.sh && /tmp/security_audit.sh\r');
+                terminalRef.current?.write(
+                  'chmod +x /tmp/security_audit.sh && /tmp/security_audit.sh\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
               🔒 Security Audit
             </Button>
-            
-            <Button 
-              size="small" 
-              variant="contained" 
-              color="info" 
+
+            <Button
+              size="small"
+              variant="contained"
+              color="info"
               onClick={() => {
-                terminalRef.current?.write('chmod +x /tmp/ansible_setup.sh && /tmp/ansible_setup.sh setup\r');
+                terminalRef.current?.write(
+                  'chmod +x /tmp/ansible_setup.sh && /tmp/ansible_setup.sh setup\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
               ⚙️ Ansible Setup
             </Button>
-            
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>☸️ Kubernetes</Typography>
-            <Button 
-              size="small" 
-              variant="contained" 
-              color="secondary" 
+
+            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+              ☸️ Kubernetes
+            </Typography>
+            <Button
+              size="small"
+              variant="contained"
+              color="secondary"
               onClick={() => {
-                terminalRef.current?.write('chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh current\r');
+                terminalRef.current?.write(
+                  'chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh current\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
               📋 K8s Context
             </Button>
-            
-            <Button 
-              size="small" 
-              variant="outlined" 
-              color="secondary" 
+
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
               onClick={() => {
-                terminalRef.current?.write('chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh contexts\r');
+                terminalRef.current?.write(
+                  'chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh contexts\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
               🔄 Switch Context
             </Button>
-            
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>🔧 Advanced</Typography>
-            <Button 
-              size="small" 
-              variant="outlined" 
-              color="error" 
+
+            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+              🔧 Advanced
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
               onClick={() => {
                 terminalRef.current?.write('sudo tcpdump -i any -c 50\r');
               }}
@@ -872,13 +1103,15 @@ const DeviceList: React.FC = () => {
             >
               📊 Network Capture
             </Button>
-            
-            <Button 
-              size="small" 
-              variant="outlined" 
-              color="warning" 
+
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
               onClick={() => {
-                terminalRef.current?.write('sudo netstat -tuln | grep LISTEN\r');
+                terminalRef.current?.write(
+                  'sudo netstat -tuln | grep LISTEN\r'
+                );
               }}
               sx={{ mb: 1 }}
             >
@@ -890,7 +1123,11 @@ const DeviceList: React.FC = () => {
             {shellDialog.device && (
               <XTermTerminal
                 ref={terminalRef}
-                wsUrl={`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:8001/api/devices/${shellDialog.device.id}/shell`}
+                wsUrl={`${
+                  window.location.protocol === 'https:' ? 'wss' : 'ws'
+                }://${window.location.hostname}:8001/api/devices/${
+                  shellDialog.device.id
+                }/shell`}
                 height={350}
                 fontSize={14}
               />
@@ -898,11 +1135,15 @@ const DeviceList: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => {
-            // Disconnect terminal before closing dialog
-            terminalRef.current?.disconnect();
-            setShellDialog({ open: false, device: null });
-          }}>Close</Button>
+          <Button
+            onClick={() => {
+              // Disconnect terminal before closing dialog
+              terminalRef.current?.disconnect();
+              setShellDialog({ open: false, device: null });
+            }}
+          >
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -925,8 +1166,14 @@ const DeviceList: React.FC = () => {
       {filteredDevices.length === 0 && (
         <Card sx={{ mt: 2 }}>
           <CardContent>
-            <Typography variant="body1" textAlign="center" color="text.secondary">
-              {searchTerm ? 'No devices found matching your search.' : 'No devices discovered yet. Start a network scan to discover devices.'}
+            <Typography
+              variant="body1"
+              textAlign="center"
+              color="text.secondary"
+            >
+              {searchTerm
+                ? 'No devices found matching your search.'
+                : 'No devices discovered yet. Start a network scan to discover devices.'}
             </Typography>
           </CardContent>
         </Card>
@@ -937,25 +1184,30 @@ const DeviceList: React.FC = () => {
         <DialogTitle>Set SSH Credentials for Selected Devices</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This will update SSH credentials for {selectedDeviceIds.length} selected devices.
+            This will update SSH credentials for {selectedDeviceIds.length}{' '}
+            selected devices.
           </DialogContentText>
           <TextField
             label="SSH Username"
             value={bulkSshUsername}
-            onChange={e => setBulkSshUsername(e.target.value)}
+            onChange={(e) => setBulkSshUsername(e.target.value)}
             sx={{ mb: 2, mt: 2, mr: 2 }}
           />
           <TextField
             label="SSH Password"
             type="password"
             value={bulkSshPassword}
-            onChange={e => setBulkSshPassword(e.target.value)}
+            onChange={(e) => setBulkSshPassword(e.target.value)}
             sx={{ mb: 2 }}
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkSshDialog(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleBulkSshSave} disabled={bulkSaving}>
+          <Button
+            variant="contained"
+            onClick={handleBulkSshSave}
+            disabled={bulkSaving}
+          >
             {bulkSaving ? 'Saving...' : 'Save SSH Credentials'}
           </Button>
         </DialogActions>
@@ -964,4 +1216,4 @@ const DeviceList: React.FC = () => {
   );
 };
 
-export default DeviceList; 
+export default DeviceList;

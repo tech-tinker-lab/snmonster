@@ -5,7 +5,7 @@ import uvicorn
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import os
 from datetime import datetime
@@ -13,18 +13,20 @@ import paramiko
 import glob
 from concurrent.futures import ThreadPoolExecutor
 
-from backend.database import init_db, get_db
-from backend.models import Device, DeviceStatus
-from backend.network_scanner import NetworkScanner
-from backend.ai_admin import AIAdminSystem
-from backend.websocket_manager import WebSocketManager
+from database import init_db, get_db
+from models import Device, DeviceStatus, BoundaryType, NamespaceStatus, PodStatus, NodeStatus
+from network_scanner import NetworkScanner
+from ai_admin import AIAdminSystem
+from websocket_manager import WebSocketManager
+from registry_manager import RegistryManager
+from config import Config
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, Config.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('network_admin.log'),
+        logging.FileHandler(Config.LOG_FILE),
         logging.StreamHandler()
     ]
 )
@@ -34,6 +36,7 @@ logger = logging.getLogger(__name__)
 network_scanner = None
 ai_admin = None
 websocket_manager = WebSocketManager()
+registry_manager = RegistryManager()
 
 # Directory where automation scripts are stored (for demo, use shell scripts or Python scripts)
 AUTOMATIONS_DIR = os.path.join(os.path.dirname(__file__), 'automations')
@@ -57,7 +60,7 @@ async def lifespan(app: FastAPI):
     # Start background tasks
     asyncio.create_task(network_scanner.start_periodic_scan())
     
-    logger.info("Network Admin Application started successfully!")
+    logger.info("Network Admin Application started successfully")
     yield
     
     # Shutdown
@@ -67,22 +70,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Network Admin System",
-    description="AI-Powered Network Device Management and Administration",
-    version="1.0.0",
+    description="AI-Powered Network Device Management and Administration with Virtual Boundaries and Container Orchestration",
+    version="2.0.0",
     lifespan=lifespan
 )
 
 # CORS middleware - More permissive for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001", 
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002"
-    ],
+    allow_origins=Config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -99,7 +95,12 @@ else:
 
 @app.get("/")
 async def root():
-    return {"message": "Network Admin System API", "version": "1.0.0"}
+    return {
+        "message": "Network Admin System API", 
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
 
 @app.options("/{full_path:path}")
 async def preflight_handler(full_path: str):
@@ -112,20 +113,18 @@ async def cors_test():
     return {
         "message": "CORS test successful",
         "timestamp": datetime.now().isoformat(),
-        "allowed_origins": [
-            "http://localhost:3000",
-            "http://localhost:3001", 
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001"
-        ]
+        "allowed_origins": Config.CORS_ORIGINS
     }
 
+# Health check endpoint
 @app.get("/api/health")
 async def health_check():
     return {
         "status": "healthy",
         "scanner_running": network_scanner.is_running if network_scanner else False,
-        "ai_system_ready": ai_admin.is_ready if ai_admin else False
+        "ai_system_ready": ai_admin.is_ready if ai_admin else False,
+        "registry_ready": True,
+        "network_range": network_scanner.network_range if network_scanner else None
     }
 
 @app.get("/api/devices")
@@ -591,42 +590,6 @@ async def device_shell(websocket: WebSocket, device_id: int):
                 return f"💻 Unknown OS/Arch ({e})"
         os_arch_info = detect_os_arch()
         await send_data(f"\n\033[1m{os_arch_info}\033[0m\n-----------------------------\n")
-        # Ensure /tmp/edu_admin and subdirectories exist before uploading scripts
-        admin_dir = "/tmp/edu_admin"
-        subdirs = ["playbooks", "templates", "inventory"]
-        mkdir_cmd = f"mkdir -p {admin_dir} " + " ".join([f'{admin_dir}/{s}' for s in subdirs])
-        chan.send(mkdir_cmd + "\n")
-        time.sleep(0.5)
-        # Define automation scripts before uploading
-        automation_scripts = {
-            "system_update.sh": """# Comprehensive System Update Script\n# Supports Ubuntu/Debian, CentOS/RHEL, and Windows\n\nset -e\n\necho \"=== System Update Automation ===\"\necho \"Detecting operating system...\"\n\n# Detect OS\nif [[ \"$OSTYPE\" == \"linux-gnu\"* ]]; then\n    if command -v apt-get &> /dev/null; then\n        echo \"Detected Ubuntu/Debian system\"\n        echo \"Updating package lists...\"\n        sudo apt-get update\n        \n        echo \"Upgrading packages...\"\n        sudo apt-get upgrade -y\n        \n        echo \"Upgrading distribution...\"\n        sudo apt-get dist-upgrade -y\n        \n        echo \"Cleaning up...\"\n        sudo apt-get autoremove -y\n        sudo apt-get autoclean\n        \n        echo \"Checking for kernel updates...\"\n        if [ -f /var/run/reboot-required ]; then\n            echo \"⚠️  System reboot required!\"\n            echo \"Run: sudo reboot\"\n        fi\n        \n    elif command -v yum &> /dev/null; then\n        echo \"Detected CentOS/RHEL system\"\n        echo \"Updating packages...\"\n        sudo yum update -y\n        \n        echo \"Cleaning up...\"\n        sudo yum autoremove -y\n        \n    elif command -v dnf &> /dev/null; then\n        echo \"Detected Fedora/DNF system\"\n        echo \"Updating packages...\"\n        sudo dnf update -y\n        \n        echo \"Cleaning up...\"\n        sudo dnf autoremove -y\n        \n    else\n        echo \"Unknown Linux distribution\"\n        exit 1\n    fi\n    \nelif [[ \"$OSTYPE\" == \"msys\" ]] || [[ \"$OSTYPE\" == \"cygwin\" ]]; then\n    echo \"Detected Windows system\"\n    echo \"Checking for Windows updates...\"\n    \n    # PowerShell commands for Windows updates\n    powershell -Command \"Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot\"\n    \nelse\n    echo \"Unsupported operating system: $OSTYPE\"\n    exit 1\nfi\n\necho \"=== System Update Complete ===\"\necho \"✅ All packages updated successfully\"\n""",
-            "security_audit.sh": """# Comprehensive Security Audit Script\n# Collects security data for AI analysis\n\nset -e\n\necho \"=== Security Audit & Network Analysis ===\"\necho \"Collecting security data for AI analysis...\"\n\n# Create audit directory\nAUDIT_DIR=\"/tmp/security_audit_$(date +%Y%m%d_%H%M%S)\"\nmkdir -p \"$AUDIT_DIR\"\n\necho \"📁 Audit data will be saved to: $AUDIT_DIR\"\n\n# System Information\necho \"🔍 Collecting system information...\"\n{\n    echo \"=== SYSTEM INFORMATION ===\"\n    echo \"Hostname: $(hostname)\"\n    echo \"OS: $(cat /etc/os-release 2>/dev/null || echo 'Unknown')\"\n    echo \"Kernel: $(uname -r)\"\n    echo \"Architecture: $(uname -m)\"\n    echo \"Uptime: $(uptime)\"\n    echo \"Load Average: $(cat /proc/loadavg 2>/dev/null || echo 'N/A')\"\n    echo \"Memory: $(free -h 2>/dev/null || echo 'N/A')\"\n    echo \"Disk Usage: $(df -h 2>/dev/null || echo 'N/A')\"\n} > \"$AUDIT_DIR/system_info.txt\"\n\n# Network Analysis\necho \"🌐 Analyzing network configuration...\"\n{\n    echo \"=== NETWORK ANALYSIS ===\"\n    echo \"IP Addresses:\"\n    ip addr show 2>/dev/null || ifconfig 2>/dev/null || echo \"Network tools not available\"\n    \n    echo -e \"\\nRouting Table:\"\n    ip route show 2>/dev/null || route -n 2>/dev/null || echo \"Routing info not available\"\n    \n    echo -e \"\\nDNS Configuration:\"\n    cat /etc/resolv.conf 2>/dev/null || echo \"DNS config not available\"\n    \n    echo -e \"\\nNetwork Interfaces:\"\n    ip link show 2>/dev/null || echo \"Interface info not available\"\n} > \"$AUDIT_DIR/network_analysis.txt\"\n\n# Open Ports and Services\necho \"🔌 Scanning open ports and services...\"\n{\n    echo \"=== OPEN PORTS & SERVICES ===\"\n    echo \"Listening ports:\"\n    netstat -tuln 2>/dev/null || ss -tuln 2>/dev/null || echo \"Port scanning tools not available\"\n    \n    echo -e \"\\nActive connections:\"\n    netstat -tuln 2>/dev/null || ss -tuln 2>/dev/null || echo \"Connection info not available\"\n    \n    echo -e \"\\nRunning services:\"\n    systemctl list-units --type=service --state=running 2>/dev/null || service --status-all 2>/dev/null || echo \"Service info not available\"\n} > \"$AUDIT_DIR/ports_services.txt\"\n\n# Process Analysis\necho \"⚙️ Analyzing running processes...\"\n{\n    echo \"=== PROCESS ANALYSIS ===\"\n    echo \"Top processes by CPU:\"\n    ps aux --sort=-%cpu | head -20 2>/dev/null || echo \"Process info not available\"\n    \n    echo -e \"\\nTop processes by memory:\"\n    ps aux --sort=-%mem | head -20 2>/dev/null || echo \"Process info not available\"\n    \n    echo -e \"\\nSuspicious processes (high CPU/memory):\"\n    ps aux | awk '$3 > 50 || $4 > 50 {print}' 2>/dev/null || echo \"Process analysis not available\"\n} > \"$AUDIT_DIR/process_analysis.txt\"\n\n# Security Analysis\necho \"🔒 Performing security analysis...\"\n{\n    echo \"=== SECURITY ANALYSIS ===\"\n    \n    echo \"Failed login attempts:\"\n    grep \"Failed password\" /var/log/auth.log 2>/dev/null | tail -20 || echo \"Auth logs not available\"\n    \n    echo -e \"\\nSuccessful logins:\"\n    grep \"Accepted password\" /var/log/auth.log 2>/dev/null | tail -20 || echo \"Auth logs not available\"\n    \n    echo -e \"\\nSudo usage:\"\n    grep \"sudo:\" /var/log/auth.log 2>/dev/null | tail -20 || echo \"Sudo logs not available\"\n    \n    echo -e \"\\nSSH connections:\"\n    grep \"sshd\" /var/log/auth.log 2>/dev/null | tail -20 || echo \"SSH logs not available\"\n    \n    echo -e \"\\nFirewall status:\"\n    ufw status 2>/dev/null || iptables -L 2>/dev/null || echo \"Firewall info not available\"\n} > \"$AUDIT_DIR/security_analysis.txt\"\n\n# Package Analysis\necho \"📦 Analyzing installed packages...\"\n{\n    echo \"=== PACKAGE ANALYSIS ===\"\n    \n    if command -v apt &> /dev/null; then\n        echo \"Ubuntu/Debian packages:\"\n        apt list --installed 2>/dev/null | head -50 || echo \"Package list not available\"\n    elif command -v yum &> /dev/null; then\n        echo \"CentOS/RHEL packages:\"\n        yum list installed 2>/dev/null | head -50 || echo \"Package list not available\"\n    elif command -v dnf &> /dev/null; then\n        echo \"Fedora packages:\"\n        dnf list installed 2>/dev/null | head -50 || echo \"Package list not available\"\n    else\n        echo \"Package manager not detected\"\n    fi\n} > \"$AUDIT_DIR/package_analysis.txt\"\n\n# Network Traffic Analysis (if tcpdump available)\necho \"📊 Analyzing network traffic patterns...\"\n{\n    echo \"=== NETWORK TRAFFIC ANALYSIS ===\"\n    \n    if command -v tcpdump &> /dev/null; then\n        echo \"Capturing network traffic for 30 seconds...\"\n        echo \"This will show active connections and traffic patterns\"\n        timeout 30 tcpdump -i any -c 100 2>/dev/null || echo \"Network capture failed\"\n    else\n        echo \"tcpdump not available for traffic analysis\"\n    fi\n    \n    echo -e \"\\nActive network connections:\"\n    netstat -tuln 2>/dev/null || ss -tuln 2>/dev/null || echo \"Connection info not available\"\n} > \"$AUDIT_DIR/network_traffic.txt\"\n\n# Create AI-ready summary\necho \"🤖 Generating AI-ready summary...\"\n{\n    echo \"=== AI ANALYSIS SUMMARY ===\"\n    echo \"Generated: $(date)\"\n    echo \"Hostname: $(hostname)\"\n    echo \"OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2 2>/dev/null || echo 'Unknown')\"\n    echo \"Open ports count: $(netstat -tuln 2>/dev/null | grep LISTEN | wc -l || echo '0')\"\n    echo \"Running services count: $(systemctl list-units --type=service --state=running 2>/dev/null | wc -l || echo '0')\"\n    echo \"Failed login attempts (last 24h): $(grep 'Failed password' /var/log/auth.log 2>/dev/null | grep \"$(date '+%b %d')\" | wc -l || echo '0')\"\n    echo \"Memory usage: $(free | grep Mem | awk '{printf \"%.1f%%\", $3/$2 * 100.0}')\"\n    echo \"Disk usage: $(df / | tail -1 | awk '{print $5}')\"\n    \n    echo -e \"\\n=== SECURITY RISK INDICATORS ===\"\n    echo \"High CPU processes: $(ps aux | awk '$3 > 50 {count++} END {print count+0}')\"\n    echo \"High memory processes: $(ps aux | awk '$4 > 50 {count++} END {print count+0}')\"\n    echo \"Suspicious network connections: $(netstat -tuln 2>/dev/null | grep -E ':(22|23|3389|5900)' | wc -l || echo '0')\"\n    \n    echo -e \"\\n=== RECOMMENDATIONS ===\"\n    echo \"1. Review failed login attempts for brute force attacks\"\n    echo \"2. Check high CPU/memory processes for malware\"\n    echo \"3. Verify all open ports are necessary\"\n    echo \"4. Update system packages regularly\"\n    echo \"5. Monitor network traffic for anomalies\"\n} > \"$AUDIT_DIR/ai_summary.txt\"\n\necho \"✅ Security audit complete!\"\necho \"📁 All data saved to: $AUDIT_DIR\"\necho \"🤖 AI-ready summary: $AUDIT_DIR/ai_summary.txt\"\necho \"\nFiles generated:\"\nls -la \"$AUDIT_DIR\"\n\n""",
-            "k8s_context.sh": "...K8s context script here...",
-            "ansible_setup.sh": "...Ansible setup script here..."
-        }
-        # Upload automation scripts to /tmp/edu_admin
-        def upload_script(script_name, script_content):
-            try:
-                full_script = f"#!/bin/bash\n{script_content}"
-                upload_cmd = f"cat > {admin_dir}/{script_name} << 'EOF'\n{full_script}\nEOF\nchmod +x {admin_dir}/{script_name}"
-                ws_to_ssh_queue.put(upload_cmd + '\n')
-                logger.info(f"Uploaded script {script_name} to remote system at {admin_dir}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to upload script {script_name}: {e}")
-                return False
-        # Upload scripts to correct subdirs
-        upload_script("system_update.sh", automation_scripts["system_update.sh"])
-        upload_script("security_audit.sh", automation_scripts["security_audit.sh"])
-        upload_script("k8s_context.sh", automation_scripts["k8s_context.sh"])
-        upload_script("ansible_setup.sh", automation_scripts["ansible_setup.sh"])
-        await send_data("\n✅ Automation scripts uploaded successfully!\n")
-        await send_data("Available scripts in /tmp/edu_admin/:\n")
-        await send_data("- system_update.sh (System updates)\n")
-        await send_data("- security_audit.sh (Security analysis)\n")
-        await send_data("- k8s_context.sh (Kubernetes management)\n")
-        await send_data("- ansible_setup.sh (Ansible automation)\n")
-        await send_data("Use the buttons in the sidebar to run them!\n\n")
         
         # Start SSH read/write threads
         read_thread = threading.Thread(target=ssh_read_loop, daemon=True)
@@ -738,11 +701,365 @@ async def run_automation(device_id: int, data: dict):
     # The frontend should open the WebSocket to /api/devices/{device_id}/automation-shell?script=SCRIPT_NAME
     return {"ws_url": f"/api/devices/{device_id}/automation-shell?script={script}"}
 
+# Registry API Endpoints
+
+# Virtual Boundaries
+@app.post("/api/registry/boundaries")
+async def create_virtual_boundary(boundary_data: dict):
+    """Create a new virtual boundary"""
+    try:
+        boundary = await registry_manager.create_virtual_boundary(boundary_data)
+        return {
+            "success": True,
+            "message": f"Virtual boundary '{boundary.name}' created successfully",
+            "boundary": boundary.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Error creating virtual boundary: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/registry/boundaries")
+async def get_virtual_boundaries():
+    """Get all virtual boundaries"""
+    try:
+        boundaries = await registry_manager.get_virtual_boundaries()
+        return {
+            "boundaries": boundaries,
+            "total": len(boundaries)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching virtual boundaries: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch virtual boundaries")
+
+@app.get("/api/registry/boundaries/{boundary_id}")
+async def get_virtual_boundary(boundary_id: int):
+    """Get a specific virtual boundary"""
+    try:
+        boundary = await registry_manager.get_virtual_boundary(boundary_id)
+        if not boundary:
+            raise HTTPException(status_code=404, detail="Virtual boundary not found")
+        return boundary
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching virtual boundary {boundary_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch virtual boundary")
+
+@app.put("/api/registry/boundaries/{boundary_id}")
+async def update_virtual_boundary(boundary_id: int, boundary_data: dict):
+    """Update a virtual boundary"""
+    try:
+        boundary = await registry_manager.update_virtual_boundary(boundary_id, boundary_data)
+        return {
+            "success": True,
+            "message": f"Virtual boundary '{boundary.name}' updated successfully",
+            "boundary": boundary.to_dict()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating virtual boundary {boundary_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update virtual boundary")
+
+@app.delete("/api/registry/boundaries/{boundary_id}")
+async def delete_virtual_boundary(boundary_id: int):
+    """Delete a virtual boundary"""
+    try:
+        success = await registry_manager.delete_virtual_boundary(boundary_id)
+        return {
+            "success": success,
+            "message": "Virtual boundary deleted successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting virtual boundary {boundary_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete virtual boundary")
+
+@app.post("/api/registry/boundaries/{boundary_id}/devices/{device_id}")
+async def add_device_to_boundary(boundary_id: int, device_id: int):
+    """Add a device to a virtual boundary"""
+    try:
+        success = await registry_manager.add_device_to_boundary(boundary_id, device_id)
+        return {
+            "success": success,
+            "message": "Device added to boundary successfully" if success else "Device already in boundary"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding device to boundary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add device to boundary")
+
+@app.get("/api/registry/boundaries/{boundary_id}/summary")
+async def get_boundary_summary(boundary_id: int):
+    """Get comprehensive summary of a virtual boundary"""
+    try:
+        summary = await registry_manager.get_boundary_summary(boundary_id)
+        return summary
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting boundary summary {boundary_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get boundary summary")
+
+# Namespaces
+@app.post("/api/registry/namespaces")
+async def create_namespace(namespace_data: dict):
+    """Create a new namespace"""
+    try:
+        namespace = await registry_manager.create_namespace(namespace_data)
+        return {
+            "success": True,
+            "message": f"Namespace '{namespace.name}' created successfully",
+            "namespace": namespace.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Error creating namespace: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/registry/namespaces")
+async def get_namespaces():
+    """Get all namespaces"""
+    try:
+        namespaces = await registry_manager.get_namespaces()
+        return {
+            "namespaces": namespaces,
+            "total": len(namespaces)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching namespaces: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch namespaces")
+
+@app.get("/api/registry/namespaces/{namespace_id}")
+async def get_namespace(namespace_id: int):
+    """Get a specific namespace"""
+    try:
+        namespace = await registry_manager.get_namespace(namespace_id)
+        if not namespace:
+            raise HTTPException(status_code=404, detail="Namespace not found")
+        return namespace
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching namespace {namespace_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch namespace")
+
+@app.put("/api/registry/namespaces/{namespace_id}")
+async def update_namespace(namespace_id: int, namespace_data: dict):
+    """Update a namespace"""
+    try:
+        namespace = await registry_manager.update_namespace(namespace_id, namespace_data)
+        return {
+            "success": True,
+            "message": f"Namespace '{namespace.name}' updated successfully",
+            "namespace": namespace.to_dict()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating namespace {namespace_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update namespace")
+
+@app.delete("/api/registry/namespaces/{namespace_id}")
+async def delete_namespace(namespace_id: int):
+    """Delete a namespace"""
+    try:
+        success = await registry_manager.delete_namespace(namespace_id)
+        return {
+            "success": success,
+            "message": "Namespace deleted successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting namespace {namespace_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete namespace")
+
+@app.get("/api/registry/namespaces/{namespace_id}/summary")
+async def get_namespace_summary(namespace_id: int):
+    """Get comprehensive summary of a namespace"""
+    try:
+        summary = await registry_manager.get_namespace_summary(namespace_id)
+        return summary
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting namespace summary {namespace_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get namespace summary")
+
+# Nodes
+@app.post("/api/registry/nodes")
+async def create_node(node_data: dict):
+    """Create a new node"""
+    try:
+        node = await registry_manager.create_node(node_data)
+        return {
+            "success": True,
+            "message": f"Node '{node.name}' created successfully",
+            "node": node.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Error creating node: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/registry/nodes")
+async def get_nodes():
+    """Get all nodes"""
+    try:
+        nodes = await registry_manager.get_nodes()
+        return {
+            "nodes": nodes,
+            "total": len(nodes)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching nodes: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch nodes")
+
+@app.get("/api/registry/nodes/{node_id}")
+async def get_node(node_id: int):
+    """Get a specific node"""
+    try:
+        node = await registry_manager.get_node(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        return node
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching node {node_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch node")
+
+@app.put("/api/registry/nodes/{node_id}/status")
+async def update_node_status(node_id: int, status: str):
+    """Update node status"""
+    try:
+        node_status = NodeStatus(status)
+        node = await registry_manager.update_node_status(node_id, node_status)
+        return {
+            "success": True,
+            "message": f"Node '{node.name}' status updated to {status}",
+            "node": node.to_dict()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating node status {node_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update node status")
+
+@app.get("/api/registry/nodes/{node_id}/summary")
+async def get_node_summary(node_id: int):
+    """Get comprehensive summary of a node"""
+    try:
+        summary = await registry_manager.get_node_summary(node_id)
+        return summary
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting node summary {node_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get node summary")
+
+# Service Pods
+@app.post("/api/registry/pods")
+async def create_service_pod(pod_data: dict):
+    """Create a new service pod"""
+    try:
+        pod = await registry_manager.create_service_pod(pod_data)
+        return {
+            "success": True,
+            "message": f"Service pod '{pod.name}' created successfully",
+            "pod": pod.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Error creating service pod: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/registry/pods")
+async def get_service_pods(namespace_id: Optional[int] = None):
+    """Get all service pods, optionally filtered by namespace"""
+    try:
+        pods = await registry_manager.get_service_pods(namespace_id)
+        return {
+            "pods": pods,
+            "total": len(pods)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching service pods: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch service pods")
+
+@app.get("/api/registry/pods/{pod_id}")
+async def get_service_pod(pod_id: int):
+    """Get a specific service pod"""
+    try:
+        pod = await registry_manager.get_service_pod(pod_id)
+        if not pod:
+            raise HTTPException(status_code=404, detail="Service pod not found")
+        return pod
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching service pod {pod_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch service pod")
+
+@app.put("/api/registry/pods/{pod_id}/status")
+async def update_pod_status(pod_id: int, status: str):
+    """Update pod status"""
+    try:
+        pod_status = PodStatus(status)
+        pod = await registry_manager.update_pod_status(pod_id, pod_status)
+        return {
+            "success": True,
+            "message": f"Pod '{pod.name}' status updated to {status}",
+            "pod": pod.to_dict()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating pod status {pod_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update pod status")
+
+@app.delete("/api/registry/pods/{pod_id}")
+async def delete_service_pod(pod_id: int):
+    """Delete a service pod"""
+    try:
+        success = await registry_manager.delete_service_pod(pod_id)
+        return {
+            "success": success,
+            "message": "Service pod deleted successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting service pod {pod_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete service pod")
+
+# Registry Overview
+@app.get("/api/registry/overview")
+async def get_registry_overview():
+    """Get overview of the entire registry"""
+    try:
+        boundaries = await registry_manager.get_virtual_boundaries()
+        namespaces = await registry_manager.get_namespaces()
+        nodes = await registry_manager.get_nodes()
+        pods = await registry_manager.get_service_pods()
+        
+        return {
+            "summary": {
+                "total_boundaries": len(boundaries),
+                "total_namespaces": len(namespaces),
+                "total_nodes": len(nodes),
+                "total_pods": len(pods),
+                "active_pods": len([pod for pod in pods if pod.get('status') == 'running']),
+                "ready_nodes": len([node for node in nodes if node.get('status') == 'ready'])
+            },
+            "boundaries": boundaries,
+            "namespaces": namespaces,
+            "nodes": nodes,
+            "pods": pods
+        }
+    except Exception as e:
+        logger.error(f"Error getting registry overview: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get registry overview")
+
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True,
-        log_level="info"
-    ) 
+    uvicorn.run(app, host="0.0.0.0", port=8001) 
