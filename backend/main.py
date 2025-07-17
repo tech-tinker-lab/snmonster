@@ -399,6 +399,252 @@ async def ai_get_recommendations():
         logger.error(f"AI recommendations error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get recommendations")
 
+# Rock 5B Specific Endpoints
+@app.get("/api/rock5b/devices")
+async def get_rock5b_devices():
+    """Get all Rock 5B devices in the network"""
+    try:
+        db = get_db()
+        # Look for Rock 5B devices based on hostname patterns or device info
+        devices = db.query(Device).filter(
+            Device.hostname.like('%rock%') | 
+            Device.hostname.like('%Rock%') |
+            Device.notes.like('%rock5b%') |
+            Device.notes.like('%Rock 5B%')
+        ).all()
+        
+        rock5b_devices = []
+        for device in devices:
+            device_dict = {
+                "id": device.id,
+                "ip_address": device.ip_address,
+                "hostname": device.hostname,
+                "status": device.status.value if device.status else "unknown",
+                "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                "ai_risk_score": device.ai_risk_score or 0.0,
+                "temperature": None,  # Will be populated by status check
+                "is_rock5b": True
+            }
+            rock5b_devices.append(device_dict)
+        
+        return {
+            "rock5b_devices": rock5b_devices,
+            "total_count": len(rock5b_devices)
+        }
+    except Exception as e:
+        logger.error(f"Error getting Rock 5B devices: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get Rock 5B devices")
+
+@app.post("/api/rock5b/{device_id}/power-on")
+async def power_on_rock5b(device_id: int):
+    """Power on a Rock 5B device using Wake-on-LAN"""
+    try:
+        db = get_db()
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        if not device.mac_address:
+            raise HTTPException(status_code=400, detail="MAC address required for Wake-on-LAN")
+        
+        # Use the rock5b_device2.sh script for power on
+        script_path = os.path.join(AUTOMATIONS_DIR, "rock5b_device2.sh")
+        if not os.path.exists(script_path):
+            raise HTTPException(status_code=500, detail="Rock 5B management script not found")
+        
+        # Execute power-on command
+        import subprocess
+        result = subprocess.run([script_path, "power-on"], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "message": f"Wake-on-LAN packet sent to {device.hostname} ({device.mac_address})",
+                "output": result.stdout
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to send Wake-on-LAN packet",
+                "error": result.stderr
+            }
+            
+    except Exception as e:
+        logger.error(f"Error powering on Rock 5B {device_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to power on Rock 5B device")
+
+@app.post("/api/rock5b/{device_id}/shutdown")
+async def shutdown_rock5b(device_id: int):
+    """Safely shutdown a Rock 5B device"""
+    try:
+        db = get_db()
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        # Use SSH to send shutdown command
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        try:
+            # Try to connect and shutdown
+            ssh.connect(device.ip_address, username="rock", timeout=10)
+            stdin, stdout, stderr = ssh.exec_command("sudo shutdown -h now")
+            
+            return {
+                "success": True,
+                "message": f"Shutdown command sent to {device.hostname}",
+                "ip": device.ip_address
+            }
+        except Exception as ssh_e:
+            raise HTTPException(status_code=500, detail=f"SSH connection failed: {str(ssh_e)}")
+        finally:
+            ssh.close()
+            
+    except Exception as e:
+        logger.error(f"Error shutting down Rock 5B {device_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to shutdown Rock 5B device")
+
+@app.get("/api/rock5b/{device_id}/status")
+async def get_rock5b_status(device_id: int):
+    """Get detailed status of a Rock 5B device"""
+    try:
+        db = get_db()
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        # Use SSH to get detailed status
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        try:
+            ssh.connect(device.ip_address, username="rock", timeout=10)
+            
+            # Get system information
+            commands = {
+                "model": "cat /proc/device-tree/model",
+                "temperature": "cat /sys/class/thermal/thermal_zone*/temp | head -1",
+                "cpu_freq": "cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq",
+                "memory": "free -h",
+                "uptime": "uptime",
+                "load": "cat /proc/loadavg"
+            }
+            
+            status_info = {}
+            for key, cmd in commands.items():
+                try:
+                    stdin, stdout, stderr = ssh.exec_command(cmd)
+                    output = stdout.read().decode().strip()
+                    status_info[key] = output
+                except:
+                    status_info[key] = "N/A"
+            
+            # Calculate temperature in Celsius
+            try:
+                temp_raw = int(status_info.get("temperature", "0"))
+                temp_celsius = temp_raw / 1000
+                status_info["temperature_celsius"] = temp_celsius
+            except:
+                status_info["temperature_celsius"] = None
+            
+            # Calculate CPU frequency in MHz
+            try:
+                freq_raw = int(status_info.get("cpu_freq", "0"))
+                freq_mhz = freq_raw / 1000
+                status_info["cpu_freq_mhz"] = freq_mhz
+            except:
+                status_info["cpu_freq_mhz"] = None
+            
+            return {
+                "device_id": device_id,
+                "hostname": device.hostname,
+                "ip_address": device.ip_address,
+                "is_online": True,
+                "rock5b_info": status_info
+            }
+            
+        except Exception as ssh_e:
+            return {
+                "device_id": device_id,
+                "hostname": device.hostname,
+                "ip_address": device.ip_address,
+                "is_online": False,
+                "error": f"SSH connection failed: {str(ssh_e)}"
+            }
+        finally:
+            ssh.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting Rock 5B status {device_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get Rock 5B status")
+
+@app.post("/api/rock5b/setup-device2")
+async def setup_rock5b_device2(device_data: dict):
+    """Setup second Rock 5B device configuration"""
+    try:
+        ip_address = device_data.get("ip_address")
+        mac_address = device_data.get("mac_address")
+        hostname = device_data.get("hostname", "rock5b-device2")
+        
+        if not ip_address:
+            raise HTTPException(status_code=400, detail="IP address is required")
+        
+        # Check if device already exists
+        db = get_db()
+        existing_device = db.query(Device).filter(Device.ip_address == ip_address).first()
+        
+        if existing_device:
+            # Update existing device
+            existing_device.mac_address = mac_address
+            existing_device.hostname = hostname
+            existing_device.notes = "Rock 5B Device 2 - Configured via API"
+            existing_device.device_type = DeviceType.COMPUTER
+            db.commit()
+            device_id = existing_device.id
+        else:
+            # Create new device entry
+            new_device = Device(
+                ip_address=ip_address,
+                mac_address=mac_address,
+                hostname=hostname,
+                device_type=DeviceType.COMPUTER,
+                operating_system=OperatingSystem.LINUX,
+                status=DeviceStatus.UNKNOWN,
+                notes="Rock 5B Device 2 - Configured via API"
+            )
+            db.add(new_device)
+            db.commit()
+            device_id = new_device.id
+        
+        # Save configuration to file
+        config_path = "/tmp/rock5b_device2.conf"
+        try:
+            with open(config_path, 'w') as f:
+                f.write(f"# Rock 5B Device 2 Configuration\n")
+                f.write(f"# Generated on {datetime.now()}\n")
+                f.write(f"DEVICE2_IP={ip_address}\n")
+                f.write(f"DEVICE2_MAC={mac_address or ''}\n")
+                f.write(f"DEVICE2_USER=rock\n")
+                f.write(f"DEVICE2_SSH_PORT=22\n")
+        except Exception as file_e:
+            logger.warning(f"Could not save config file: {file_e}")
+        
+        return {
+            "success": True,
+            "message": "Rock 5B Device 2 setup completed",
+            "device_id": device_id,
+            "ip_address": ip_address,
+            "mac_address": mac_address,
+            "hostname": hostname
+        }
+        
+    except Exception as e:
+        logger.error(f"Error setting up Rock 5B Device 2: {e}")
+        raise HTTPException(status_code=500, detail="Failed to setup Rock 5B Device 2")
+
 @app.websocket("/api/devices/{device_id}/shell")
 async def device_shell(websocket: WebSocket, device_id: int):
     """WebSocket endpoint for SSH shell access to a device."""
@@ -590,6 +836,56 @@ async def device_shell(websocket: WebSocket, device_id: int):
                 return f"💻 Unknown OS/Arch ({e})"
         os_arch_info = detect_os_arch()
         await send_data(f"\n\033[1m{os_arch_info}\033[0m\n-----------------------------\n")
+        # Ensure /tmp/edu_admin and subdirectories exist before uploading scripts
+        admin_dir = "/tmp/edu_admin"
+        subdirs = ["playbooks", "templates", "inventory"]
+        mkdir_cmd = f"mkdir -p {admin_dir} " + " ".join([f'{admin_dir}/{s}' for s in subdirs])
+        chan.send(mkdir_cmd + "\n")
+        time.sleep(0.5)
+        # Define automation scripts before uploading
+        # Load scripts from files if they exist, otherwise use inline content
+        def load_script_content(script_name):
+            script_path = os.path.join(AUTOMATIONS_DIR, script_name)
+            if os.path.exists(script_path):
+                with open(script_path, 'r') as f:
+                    return f.read()
+            return f"# {script_name} not found in automations directory"
+        
+        automation_scripts = {
+            "system_update.sh": load_script_content("system_update.sh"),
+            "security_audit.sh": load_script_content("security_audit.sh"),
+            "k8s_context.sh": load_script_content("k8s_context.sh"),
+            "ansible_setup.sh": load_script_content("ansible_setup.sh"),
+            "rock5b_management.sh": load_script_content("rock5b_management.sh"),
+            "rock5b_device2.sh": load_script_content("rock5b_device2.sh")
+        }
+        # Upload automation scripts to /tmp/edu_admin
+        def upload_script(script_name, script_content):
+            try:
+                full_script = f"#!/bin/bash\n{script_content}"
+                upload_cmd = f"cat > {admin_dir}/{script_name} << 'EOF'\n{full_script}\nEOF\nchmod +x {admin_dir}/{script_name}"
+                ws_to_ssh_queue.put(upload_cmd + '\n')
+                logger.info(f"Uploaded script {script_name} to remote system at {admin_dir}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to upload script {script_name}: {e}")
+                return False
+        # Upload scripts to correct subdirs
+        upload_script("system_update.sh", automation_scripts["system_update.sh"])
+        upload_script("security_audit.sh", automation_scripts["security_audit.sh"])
+        upload_script("k8s_context.sh", automation_scripts["k8s_context.sh"])
+        upload_script("ansible_setup.sh", automation_scripts["ansible_setup.sh"])
+        upload_script("rock5b_management.sh", automation_scripts["rock5b_management.sh"])
+        upload_script("rock5b_device2.sh", automation_scripts["rock5b_device2.sh"])
+        await send_data("\n✅ Automation scripts uploaded successfully!\n")
+        await send_data("Available scripts in /tmp/edu_admin/:\n")
+        await send_data("- system_update.sh (System updates)\n")
+        await send_data("- security_audit.sh (Security analysis)\n")
+        await send_data("- k8s_context.sh (Kubernetes management)\n")
+        await send_data("- ansible_setup.sh (Ansible automation)\n")
+        await send_data("- rock5b_management.sh (Rock 5B device management)\n")
+        await send_data("- rock5b_device2.sh (Rock 5B Device 2 control)\n")
+        await send_data("Use the buttons in the sidebar to run them!\n\n")
         
         # Start SSH read/write threads
         read_thread = threading.Thread(target=ssh_read_loop, daemon=True)
