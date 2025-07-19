@@ -5,7 +5,7 @@ export class WebSocketService {
   private reconnectDelay = 1000;
   private listeners: Map<string, Function[]> = new Map();
 
-  constructor(private url: string = 'ws://localhost:8001/ws') {}
+  constructor(private url: string = 'ws://localhost:8004/ws') {}
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {

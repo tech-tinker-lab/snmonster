@@ -49,10 +49,11 @@ import {
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useNavigate } from 'react-router-dom';
-import { deviceAPI } from '../services/api';
+import { deviceAPI, getBackendWsUrl } from '../services/api';
 import XTermTerminal, {
   XTermTerminalHandle,
 } from '../components/XTermTerminal';
+import { useStore } from '../store';
 
 interface Device {
   id: number;
@@ -69,6 +70,7 @@ interface Device {
   ssh_username?: string;
   ssh_password?: string;
   is_managed?: boolean;
+  category?: string;
 }
 
 interface DeviceAction {
@@ -142,14 +144,34 @@ const DeviceList: React.FC = () => {
   const queryClient = useQueryClient();
   const terminalRef = useRef<XTermTerminalHandle>(null);
 
-  const { data: devicesData, refetch } = useQuery(
-    'devices',
-    async () => {
-      const response = await deviceAPI.getDevices();
-      return response.data;
-    },
-    { refetchInterval: 30000 }
-  );
+
+  // Use React Query for device list and refetch
+  const setDevices = useStore((state) => state.setDevices);
+  const { data: deviceQueryData, refetch } = useQuery('devices', () => deviceAPI.getDevices().then(res => res.data.devices));
+
+  // Map store devices to Device type for local use
+  const devices: Device[] = (deviceQueryData || []).map((d: any) => ({
+    id: d.id,
+    ip_address: d.ip_address ?? '',
+    hostname: d.hostname ?? '',
+    device_type: d.device_type ?? '',
+    operating_system: d.operating_system ?? '',
+    status: d.status ?? '',
+    last_seen: d.last_seen ?? '',
+    ai_risk_score: d.ai_risk_score ?? 0,
+    mac_address: d.mac_address ?? '',
+    open_ports: d.open_ports,
+    vulnerabilities: d.vulnerabilities,
+    ssh_username: d.ssh_username,
+    ssh_password: d.ssh_password,
+    is_managed: d.is_managed,
+    category: d.category,
+  }));
+
+  // Keep Zustand store in sync (optional, if needed elsewhere)
+  useEffect(() => {
+    if (deviceQueryData) setDevices(deviceQueryData);
+  }, [deviceQueryData, setDevices]);
 
   // Mutations for device actions
   const pingMutation = useMutation(
@@ -217,8 +239,6 @@ const DeviceList: React.FC = () => {
       },
     }
   );
-
-  const devices: Device[] = devicesData?.devices || [];
 
   // Helper to compare IPs as numbers
   const ipToNumber = (ip: string) =>
@@ -680,6 +700,7 @@ const DeviceList: React.FC = () => {
                   <TableCell>Hostname</TableCell>
                   <TableCell>Device Type</TableCell>
                   <TableCell>Operating System</TableCell>
+                  <TableCell>Category</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Risk Score</TableCell>
                   <TableCell>Last Seen</TableCell>
@@ -713,6 +734,7 @@ const DeviceList: React.FC = () => {
                     <TableCell>{device.hostname || 'Unknown'}</TableCell>
                     <TableCell>{device.device_type}</TableCell>
                     <TableCell>{device.operating_system}</TableCell>
+                    <TableCell>{device.category || 'Uncategorized'}</TableCell>
                     <TableCell>{device.status}</TableCell>
                     <TableCell>
                       {(device.ai_risk_score * 100).toFixed(0)}%
@@ -1145,13 +1167,15 @@ const DeviceList: React.FC = () => {
             {shellDialog.device && (
               <XTermTerminal
                 ref={terminalRef}
-                wsUrl={`${
-                  window.location.protocol === 'https:' ? 'wss' : 'ws'
-                }://${window.location.hostname}:8001/api/devices/${
-                  shellDialog.device.id
-                }/shell`}
+                wsUrl={`${getBackendWsUrl()}/api/devices/${shellDialog.device.id}/shell`}
                 height={350}
                 fontSize={14}
+                onError={(message) => showSnackbar(message, 'error')}
+                onStatus={(status) => {
+                  if (status === 'connected') showSnackbar('SSH connection established', 'success');
+                  if (status === 'disconnected') showSnackbar('SSH connection closed', 'info');
+                  if (status === 'connecting') showSnackbar('Connecting to SSH...', 'info');
+                }}
               />
             )}
           </Box>

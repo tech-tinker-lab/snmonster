@@ -2,12 +2,20 @@ import axios from 'axios';
 
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8001',
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8004',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Helper function to get the WebSocket URL for the backend
+export const getBackendWsUrl = () => {
+  const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:8004';
+  const url = new URL(backendUrl);
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${protocol}://${url.hostname}:${url.port}`;
+};
 
 // Request interceptor for logging
 api.interceptors.request.use(
@@ -66,6 +74,12 @@ export const deviceAPI = {
     api.post('/api/devices/bulk-security-audit', { device_ids: deviceIds }),
   getSecurityReports: (deviceIds: number[]) =>
     api.post('/api/devices/security-reports', { device_ids: deviceIds }),
+
+  // System update actions
+  runSystemUpdate: (deviceIds: number[]) =>
+    api.post('/api/devices/bulk-system-update', { device_ids: deviceIds }),
+  getSystemUpdateStatus: (deviceIds: number[]) =>
+    api.post('/api/devices/system-update-status', { device_ids: deviceIds }),
 
   // Device actions
   pingDevice: (id: number) => api.post(`/api/devices/${id}/ping`),

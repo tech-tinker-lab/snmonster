@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import DeviceList from './pages/DeviceList';
-import ManagedDevices from './pages/ManagedDevices';
-import DeviceDetail from './pages/DeviceDetail';
-import NetworkScan from './pages/NetworkScan';
-import SecurityAnalysis from './pages/SecurityAnalysis';
-import AIRecommendations from './pages/AIRecommendations';
-import Settings from './pages/Settings';
+
+// Lazy load pages for code-splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const DeviceList = lazy(() => import('./pages/DeviceList'));
+const ManagedDevices = lazy(() => import('./pages/ManagedDevices'));
+const DeviceDetail = lazy(() => import('./pages/DeviceDetail'));
+const NetworkScan = lazy(() => import('./pages/NetworkScan'));
+const SecurityAnalysis = lazy(() => import('./pages/SecurityAnalysis'));
+const AIRecommendations = lazy(() => import('./pages/AIRecommendations'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 // Create an enhanced dark theme with beautiful colors
 const darkTheme = createTheme({
@@ -111,19 +113,21 @@ function App() {
         <CssBaseline />
         <Router>
           <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/devices" element={<DeviceList />} />
-              <Route path="/managed-devices" element={<ManagedDevices />} />
-              <Route path="/devices/:id" element={<DeviceDetail />} />
-              <Route path="/scan" element={<NetworkScan />} />
-              <Route path="/security" element={<SecurityAnalysis />} />
-              <Route
-                path="/ai-recommendations"
-                element={<AIRecommendations />}
-              />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
+            <Suspense fallback={<div>Loading...</div>}>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/devices" element={<DeviceList />} />
+                <Route path="/managed-devices" element={<ManagedDevices />} />
+                <Route path="/devices/:id" element={<DeviceDetail />} />
+                <Route path="/scan" element={<NetworkScan />} />
+                <Route path="/security" element={<SecurityAnalysis />} />
+                <Route
+                  path="/ai-recommendations"
+                  element={<AIRecommendations />}
+                />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </Suspense>
           </Layout>
         </Router>
       </ThemeProvider>

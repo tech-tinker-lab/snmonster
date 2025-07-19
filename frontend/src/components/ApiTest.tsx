@@ -13,7 +13,7 @@ const ApiTest: React.FC = () => {
     try {
       // Test 1: CORS test
       console.log('Testing CORS endpoint...');
-      const corsResponse = await fetch('http://localhost:8001/api/cors-test');
+      const corsResponse = await fetch('http://localhost:8004/api/cors-test');
       const corsData = await corsResponse.json();
       results.cors = { success: true, data: corsData };
       console.log('CORS test passed:', corsData);

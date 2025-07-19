@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Button, Typography, Card, CardContent, Alert, TextField } from '@mui/material';
 
 const CorsDebug: React.FC = () => {
-  const [testUrl, setTestUrl] = useState('http://localhost:8001/api/health');
+  const [testUrl, setTestUrl] = useState('http://localhost:8004/api/health');
   const [results, setResults] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
@@ -134,28 +134,28 @@ const CorsDebug: React.FC = () => {
             <Button 
               size="small" 
               variant="outlined"
-              onClick={() => setTestUrl('http://localhost:8001/api/health')}
+              onClick={() => setTestUrl('http://localhost:8004/api/health')}
             >
               Health Check
             </Button>
             <Button 
               size="small" 
               variant="outlined"
-              onClick={() => setTestUrl('http://localhost:8001/api/cors-test')}
+              onClick={() => setTestUrl('http://localhost:8004/api/cors-test')}
             >
               CORS Test
             </Button>
             <Button 
               size="small" 
               variant="outlined"
-              onClick={() => setTestUrl('http://localhost:8001/api/devices')}
+              onClick={() => setTestUrl('http://localhost:8004/api/devices')}
             >
               Devices
             </Button>
             <Button 
               size="small" 
               variant="outlined"
-              onClick={() => setTestUrl('http://localhost:8001/api/scan/status')}
+              onClick={() => setTestUrl('http://localhost:8004/api/scan/status')}
             >
               Scan Status
             </Button>

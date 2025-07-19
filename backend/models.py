@@ -2,6 +2,13 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, 
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
+class Category(Base):
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text)
+    devices = relationship("Device", back_populates="category")
+
 import enum
 from datetime import datetime
 from typing import Dict, Any
@@ -425,6 +432,10 @@ class Device(Base):
     # Management status
     is_managed = Column(Boolean, default=False)  # Whether this device is managed
 
+    # Category relationship
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    category = relationship("Category", back_populates="devices")
+
     # Timestamps
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -467,6 +478,8 @@ class Device(Base):
             "ssh_username": self.ssh_username,
             "ssh_password": '********' if self.ssh_password_enc is not None and not isinstance(self.ssh_password_enc, InstrumentedAttribute) and bool(self.ssh_password_enc) else '',
             "is_managed": self.is_managed,
+            "category": self.category.name if self.category else None,
+            "category_id": self.category_id,
         }
         
         # Handle enum values
@@ -567,4 +580,73 @@ class SystemPatch(Base):
             "status": self.status,
             "size": self.size,
             "source": self.source
+        }
+
+class SecurityAuditReport(Base):
+    __tablename__ = "security_audit_reports"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
+    audit_id = Column(String(100), unique=True, nullable=False)
+    audit_date = Column(DateTime, default=func.now())
+    status = Column(String(20), default="running")  # "running", "completed", "failed"
+    
+    # System Information
+    system_info = Column(Text)  # JSON string of system information
+    network_analysis = Column(Text)  # JSON string of network analysis
+    ports_services = Column(Text)  # JSON string of ports and services
+    process_analysis = Column(Text)  # JSON string of process analysis
+    security_analysis = Column(Text)  # JSON string of security analysis
+    package_analysis = Column(Text)  # JSON string of package analysis
+    network_traffic = Column(Text)  # JSON string of network traffic analysis
+    ai_summary = Column(Text)  # JSON string of AI-ready summary
+    
+    # Calculated scores
+    overall_score = Column(Float, default=0.0)
+    system_updates_score = Column(Float, default=0.0)
+    network_security_score = Column(Float, default=0.0)
+    user_accounts_score = Column(Float, default=0.0)
+    file_permissions_score = Column(Float, default=0.0)
+    
+    # Issue counts
+    critical_issues = Column(Integer, default=0)
+    warnings = Column(Integer, default=0)
+    
+    # Raw audit files (stored as text)
+    raw_files = Column(Text)  # JSON string containing all audit file contents
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationship
+    device = relationship("Device")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert audit report to dictionary"""
+        return {
+            "id": self.id,
+            "device_id": self.device_id,
+            "audit_id": self.audit_id,
+            "audit_date": self.audit_date.isoformat() if self.audit_date else None,
+            "status": self.status,
+            "system_info": self.system_info,
+            "network_analysis": self.network_analysis,
+            "ports_services": self.ports_services,
+            "process_analysis": self.process_analysis,
+            "security_analysis": self.security_analysis,
+            "package_analysis": self.package_analysis,
+            "network_traffic": self.network_traffic,
+            "ai_summary": self.ai_summary,
+            "overall_score": self.overall_score,
+            "system_updates_score": self.system_updates_score,
+            "network_security_score": self.network_security_score,
+            "user_accounts_score": self.user_accounts_score,
+            "file_permissions_score": self.file_permissions_score,
+            "critical_issues": self.critical_issues,
+            "warnings": self.warnings,
+            "raw_files": self.raw_files,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "device": self.device.to_dict() if self.device else None
         } 
