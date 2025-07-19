@@ -42,6 +42,8 @@ api.interceptors.response.use(
 
 // API endpoints
 export const deviceAPI = {
+  // Run arbitrary script on a device
+  runScript: (id: number, data: {script: string}) => api.post(`/api/devices/${id}/run-script`, data),
   // Get all devices (unmanaged only)
   getDevices: () => api.get('/api/devices'),
 

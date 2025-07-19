@@ -1,3 +1,7 @@
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import Collapse from '@mui/material/Collapse';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -17,7 +21,6 @@ import {
   InputAdornment,
   Button,
   Menu,
-  MenuItem,
   ListItemIcon,
   ListItemText,
   Dialog,
@@ -89,6 +92,7 @@ const TERMINAL_STATES = {
 };
 
 const DeviceList: React.FC = () => {
+  const [expandedDevice, setExpandedDevice] = useState<number|null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<
     | 'ip_address'
@@ -469,6 +473,7 @@ const DeviceList: React.FC = () => {
     setSelectedDeviceIds(checked ? devices.map((d) => d.id) : []);
   };
 
+
   // Bulk SSH credential save
   const handleBulkSshSave = async () => {
     setBulkSaving(true);
@@ -599,14 +604,16 @@ const DeviceList: React.FC = () => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
             <Button
-              variant="contained"
-              color="secondary"
-              disabled={selectedDeviceIds.length === 0}
-              onClick={() => setBulkSshDialog(true)}
-              sx={{ mr: 2 }}
-            >
-              Set SSH Credentials for Selected
-            </Button>
+          variant="contained"
+          color="secondary"
+          disabled={selectedDeviceIds.length === 0}
+          onClick={() => setBulkSshDialog(true)}
+          sx={{ mr: 2 }}
+        >
+          Set SSH Credentials for Selected
+        </Button>
+        {/* Removed script runner UI for unmanaged devices */}
+      {/* Bulk Script Progress Dialog */}
             <Button
               variant="contained"
               color="primary"
