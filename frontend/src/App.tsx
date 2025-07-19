@@ -6,6 +6,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import DeviceList from './pages/DeviceList';
+import ManagedDevices from './pages/ManagedDevices';
 import DeviceDetail from './pages/DeviceDetail';
 import NetworkScan from './pages/NetworkScan';
 import SecurityAnalysis from './pages/SecurityAnalysis';
@@ -113,6 +114,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/devices" element={<DeviceList />} />
+              <Route path="/managed-devices" element={<ManagedDevices />} />
               <Route path="/devices/:id" element={<DeviceDetail />} />
               <Route path="/scan" element={<NetworkScan />} />
               <Route path="/security" element={<SecurityAnalysis />} />

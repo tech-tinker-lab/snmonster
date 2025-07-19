@@ -421,6 +421,9 @@ class Device(Base):
     # SSH credentials
     ssh_username = Column(String(255))
     ssh_password_enc = Column(String(255))  # Encrypted password
+    
+    # Management status
+    is_managed = Column(Boolean, default=False)  # Whether this device is managed
 
     # Timestamps
     created_at = Column(DateTime, default=func.now())
@@ -463,6 +466,7 @@ class Device(Base):
             "notes": self.notes,
             "ssh_username": self.ssh_username,
             "ssh_password": '********' if self.ssh_password_enc is not None and not isinstance(self.ssh_password_enc, InstrumentedAttribute) and bool(self.ssh_password_enc) else '',
+            "is_managed": self.is_managed,
         }
         
         # Handle enum values

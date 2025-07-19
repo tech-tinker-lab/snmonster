@@ -25,10 +25,36 @@ class NetworkAdminSystem:
         self.backend_process = None
         self.frontend_process = None
         self.running = True
+        self.python_exe = None  # Store the selected Python interpreter
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
+    
+    def find_python_interpreter(self):
+        """Find the best Python interpreter with pip available"""
+        if self.python_exe:
+            return self.python_exe
+        
+        python_interpreters = [
+            r"C:\projects\snmonster\dev_env\Scripts\python.exe",  # dev_env (preferred)
+            sys.executable,  # Current Python
+            "python",  # System Python
+        ]
+        
+        for interpreter in python_interpreters:
+            try:
+                # Test if this Python has pip
+                result = subprocess.run([interpreter, "-m", "pip", "--version"], 
+                                      capture_output=True, check=True)
+                self.python_exe = interpreter
+                logger.info(f"✓ Using Python interpreter: {self.python_exe}")
+                return self.python_exe
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+        
+        logger.error("✗ No Python interpreter with pip found")
+        return None
     
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -58,11 +84,18 @@ class NetworkAdminSystem:
         
         # Check npm
         try:
-            subprocess.run(["npm", "--version"], check=True, capture_output=True)
+            # Try npm.cmd first (Windows), then npm
+            npm_command = "npm.cmd" if os.name == 'nt' else "npm"
+            subprocess.run([npm_command, "--version"], check=True, capture_output=True)
             logger.info("✓ npm found")
         except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.error("✗ npm not found. Please install npm")
-            return False
+            try:
+                # Fallback to npm if npm.cmd fails
+                subprocess.run(["npm", "--version"], check=True, capture_output=True)
+                logger.info("✓ npm found")
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logger.error("✗ npm not found. Please install npm")
+                return False
         
         return True
     
@@ -70,14 +103,18 @@ class NetworkAdminSystem:
         """Install Python backend dependencies"""
         logger.info("Installing backend dependencies...")
         
+        python_exe = self.find_python_interpreter()
+        if not python_exe:
+            return False
+        
         try:
             # Try minimal requirements first
             if os.path.exists("requirements-minimal.txt"):
-                subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements-minimal.txt"], check=True)
+                subprocess.run([python_exe, "-m", "pip", "install", "-r", "requirements-minimal.txt"], check=True)
                 logger.info("✓ Backend dependencies installed")
                 return True
             elif os.path.exists("requirements.txt"):
-                subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+                subprocess.run([python_exe, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
                 logger.info("✓ Backend dependencies installed")
                 return True
             else:
@@ -97,7 +134,9 @@ class NetworkAdminSystem:
             return False
         
         try:
-            subprocess.run(["npm", "install"], cwd=frontend_dir, check=True)
+            # Use npm.cmd on Windows, npm on other systems
+            npm_command = "npm.cmd" if os.name == 'nt' else "npm"
+            subprocess.run([npm_command, "install"], cwd=frontend_dir, check=True)
             logger.info("✓ Frontend dependencies installed")
             return True
         except subprocess.CalledProcessError as e:
@@ -114,7 +153,9 @@ class NetworkAdminSystem:
             return False
         
         try:
-            subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True)
+            # Use npm.cmd on Windows, npm on other systems
+            npm_command = "npm.cmd" if os.name == 'nt' else "npm"
+            subprocess.run([npm_command, "run", "build"], cwd=frontend_dir, check=True)
             logger.info("✓ Frontend built successfully")
             return True
         except subprocess.CalledProcessError as e:
@@ -125,10 +166,14 @@ class NetworkAdminSystem:
         """Start the backend server"""
         logger.info("Starting backend server...")
         
+        python_exe = self.find_python_interpreter()
+        if not python_exe:
+            python_exe = sys.executable  # Fallback
+        
         try:
-            # Use the simple runner
+            # Use the selected Python interpreter
             self.backend_process = subprocess.Popen([
-                sys.executable, "run_backend.py"
+                python_exe, "run_backend.py"
             ])
             
             # Wait a moment for backend to start
@@ -154,8 +199,10 @@ class NetworkAdminSystem:
             return False
         
         try:
+            # Use npm.cmd on Windows, npm on other systems
+            npm_command = "npm.cmd" if os.name == 'nt' else "npm"
             self.frontend_process = subprocess.Popen([
-                "npm", "start"
+                npm_command, "start"
             ], cwd=frontend_dir)
             
             # Wait a moment for frontend to start

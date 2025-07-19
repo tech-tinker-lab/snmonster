@@ -52,6 +52,13 @@ const menuItems = [
     description: 'Manage devices',
   },
   {
+    text: 'Managed Devices',
+    icon: <RouterIcon />,
+    path: '/managed-devices',
+    color: '#00d4aa',
+    description: 'Managed devices',
+  },
+  {
     text: 'Network Scan',
     icon: <NetworkCheckIcon />,
     path: '/scan',

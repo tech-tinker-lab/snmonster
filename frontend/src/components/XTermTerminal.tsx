@@ -127,12 +127,11 @@ const XTermTerminal = forwardRef<XTermTerminalHandle, XTermTerminalProps>(
           ws.onopen = () => {
             console.log('WebSocket connected!');
             if (mounted) {
-              setIsConnected(true);
+              setIsConnected(false); // Will be set to true when SSH connection is ready
               setError(null);
               // setUploadingScripts(true);
               setUploadDone(false);
-              if (onStatus) onStatus('connected');
-              term.current?.writeln('[Connected]');
+              // Wait for backend to send 'connected' status instead of assuming connection
             }
           };
 
@@ -148,7 +147,10 @@ const XTermTerminal = forwardRef<XTermTerminalHandle, XTermTerminalProps>(
                   console.log('Status message:', msg.status);
                   if (onStatus) onStatus(msg.status);
                   if (msg.status === 'connected') {
+                    setIsConnected(true);
                     term.current.writeln('[Connected]');
+                  } else if (msg.status === 'disconnected') {
+                    setIsConnected(false);
                   }
                   break;
                 case 'data': {

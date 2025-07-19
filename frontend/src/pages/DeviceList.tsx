@@ -68,6 +68,7 @@ interface Device {
   vulnerabilities?: string;
   ssh_username?: string;
   ssh_password?: string;
+  is_managed?: boolean;
 }
 
 interface DeviceAction {
@@ -193,6 +194,24 @@ const DeviceList: React.FC = () => {
       onError: (error: any) => {
         showSnackbar(
           error.response?.data?.detail || 'Failed to perform security scan',
+          'error'
+        );
+      },
+    }
+  );
+
+  const markManagedMutation = useMutation(
+    (deviceIds: number[]) => deviceAPI.markDevicesAsManaged(deviceIds),
+    {
+      onSuccess: (data) => {
+        showSnackbar(data.data.message, 'success');
+        setSelectedDeviceIds([]);
+        queryClient.invalidateQueries('devices');
+        queryClient.invalidateQueries('managed-devices');
+      },
+      onError: (error: any) => {
+        showSnackbar(
+          error.response?.data?.detail || 'Failed to mark devices as managed',
           'error'
         );
       },
@@ -503,7 +522,11 @@ const DeviceList: React.FC = () => {
         }}
       >
         <Typography variant="h4" component="h1">
-          Network Devices
+          Discovered Devices
+        </Typography>
+        <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+          Devices detected on the network that are not yet managed. Use "Mark as
+          Managed" to move devices to the Managed Devices page.
         </Typography>
         <Button
           variant="outlined"
@@ -563,6 +586,15 @@ const DeviceList: React.FC = () => {
               sx={{ mr: 2 }}
             >
               Set SSH Credentials for Selected
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              disabled={selectedDeviceIds.length === 0}
+              onClick={() => markManagedMutation.mutate(selectedDeviceIds)}
+              sx={{ mr: 2 }}
+            >
+              Mark as Managed ({selectedDeviceIds.length})
             </Button>
             <Typography variant="h5">Available Devices</Typography>
             <TextField
@@ -989,30 +1021,6 @@ const DeviceList: React.FC = () => {
               gap: 1,
             }}
           >
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Quick Commands
-            </Typography>
-            {[
-              'ls',
-              'htop',
-              'df -h',
-              'cat /etc/os-release',
-              'sudo apt update',
-            ].map((cmd) => (
-              <Button
-                key={cmd}
-                size="small"
-                variant="outlined"
-                onClick={() => {
-                  terminalRef.current?.write(cmd + '\r');
-                }}
-              >
-                {cmd}
-              </Button>
-            ))}
-
-            <Box sx={{ flexGrow: 1 }} />
-
             <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
               🚀 System Automation
             </Typography>
@@ -1022,7 +1030,7 @@ const DeviceList: React.FC = () => {
               color="primary"
               onClick={() => {
                 terminalRef.current?.write(
-                  'chmod +x /tmp/system_update.sh && /tmp/system_update.sh\r'
+                  'chmod +x /tmp/edu_admin/system_update.sh && /tmp/edu_admin/system_update.sh\r'
                 );
               }}
               sx={{ mb: 1 }}
@@ -1036,7 +1044,7 @@ const DeviceList: React.FC = () => {
               color="warning"
               onClick={() => {
                 terminalRef.current?.write(
-                  'chmod +x /tmp/security_audit.sh && /tmp/security_audit.sh\r'
+                  'chmod +x /tmp/edu_admin/security_audit.sh && /tmp/edu_admin/security_audit.sh\r'
                 );
               }}
               sx={{ mb: 1 }}
@@ -1050,7 +1058,7 @@ const DeviceList: React.FC = () => {
               color="info"
               onClick={() => {
                 terminalRef.current?.write(
-                  'chmod +x /tmp/ansible_setup.sh && /tmp/ansible_setup.sh setup\r'
+                  'chmod +x /tmp/edu_admin/ansible_setup.sh && /tmp/edu_admin/ansible_setup.sh setup\r'
                 );
               }}
               sx={{ mb: 1 }}
@@ -1067,7 +1075,7 @@ const DeviceList: React.FC = () => {
               color="secondary"
               onClick={() => {
                 terminalRef.current?.write(
-                  'chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh current\r'
+                  'chmod +x /tmp/edu_admin/k8s_context.sh && /tmp/edu_admin/k8s_context.sh current\r'
                 );
               }}
               sx={{ mb: 1 }}
@@ -1081,12 +1089,26 @@ const DeviceList: React.FC = () => {
               color="secondary"
               onClick={() => {
                 terminalRef.current?.write(
-                  'chmod +x /tmp/k8s_context.sh && /tmp/k8s_context.sh contexts\r'
+                  'chmod +x /tmp/edu_admin/k8s_context.sh && /tmp/edu_admin/k8s_context.sh contexts\r'
                 );
               }}
               sx={{ mb: 1 }}
             >
               🔄 Switch Context
+            </Button>
+
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                terminalRef.current?.write(
+                  'chmod +x /tmp/edu_admin/docker_install_rock5b.sh && /tmp/edu_admin/docker_install_rock5b.sh\r'
+                );
+              }}
+              sx={{ mb: 1 }}
+            >
+              🐋 Install Docker
             </Button>
 
             <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>

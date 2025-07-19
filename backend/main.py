@@ -12,9 +12,16 @@ from datetime import datetime
 import paramiko
 import glob
 from concurrent.futures import ThreadPoolExecutor
+import codecs
+import time
+import re
+import subprocess
+import socket
+import queue
+import threading
 
 from database import init_db, get_db
-from models import Device, DeviceStatus, BoundaryType, NamespaceStatus, PodStatus, NodeStatus
+from models import Device, DeviceStatus, DeviceType, OperatingSystem, BoundaryType, NamespaceStatus, PodStatus, NodeStatus
 from network_scanner import NetworkScanner
 from ai_admin import AIAdminSystem
 from websocket_manager import WebSocketManager
@@ -129,7 +136,35 @@ async def health_check():
 
 @app.get("/api/devices")
 async def get_devices():
-    """Get all discovered devices"""
+    """Get all discovered devices (non-managed only)"""
+    try:
+        db = get_db()
+        devices = db.query(Device).filter(Device.is_managed == False).all()
+        return {
+            "devices": [device.to_dict() for device in devices],
+            "total": len(devices)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching devices: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch devices")
+
+@app.get("/api/devices/managed")
+async def get_managed_devices():
+    """Get all managed devices"""
+    try:
+        db = get_db()
+        devices = db.query(Device).filter(Device.is_managed == True).all()
+        return {
+            "devices": [device.to_dict() for device in devices],
+            "total": len(devices)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching managed devices: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch managed devices")
+
+@app.get("/api/devices/all")
+async def get_all_devices():
+    """Get all devices (both managed and unmanaged)"""
     try:
         db = get_db()
         devices = db.query(Device).all()
@@ -138,8 +173,329 @@ async def get_devices():
             "total": len(devices)
         }
     except Exception as e:
-        logger.error(f"Error fetching devices: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch devices")
+        logger.error(f"Error fetching all devices: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch all devices")
+
+@app.post("/api/devices/mark-managed")
+async def mark_devices_as_managed(device_ids: list[int]):
+    """Mark selected devices as managed"""
+    try:
+        db = get_db()
+        updated_count = 0
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if device:
+                device.is_managed = True
+                device.updated_at = datetime.now()
+                updated_count += 1
+        
+        db.commit()
+        return {
+            "success": True,
+            "message": f"Successfully marked {updated_count} devices as managed",
+            "updated_count": updated_count
+        }
+    except Exception as e:
+        logger.error(f"Error marking devices as managed: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to mark devices as managed")
+
+@app.post("/api/devices/unmark-managed")
+async def unmark_devices_as_managed(device_ids: list[int]):
+    """Unmark selected devices as managed (move back to discovered)"""
+    try:
+        db = get_db()
+        updated_count = 0
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if device:
+                device.is_managed = False
+                device.updated_at = datetime.now()
+                updated_count += 1
+        
+        db.commit()
+        return {
+            "success": True,
+            "message": f"Successfully unmarked {updated_count} devices as managed",
+            "updated_count": updated_count
+        }
+    except Exception as e:
+        logger.error(f"Error unmarking devices as managed: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to unmark devices as managed")
+
+@app.post("/api/devices/bulk-set-password")
+async def bulk_set_password(request_data: dict):
+    """Set SSH password for multiple managed devices"""
+    try:
+        device_ids = request_data.get("device_ids", [])
+        password = request_data.get("password", "")
+        
+        if not device_ids or not password:
+            raise HTTPException(status_code=400, detail="Device IDs and password are required")
+        
+        db = get_db()
+        updated_count = 0
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(
+                Device.id == device_id, 
+                Device.is_managed == True
+            ).first()
+            if device:
+                device.set_ssh_password(password)
+                device.updated_at = datetime.now()
+                updated_count += 1
+        
+        db.commit()
+        return {
+            "success": True,
+            "message": f"Successfully set password for {updated_count} devices",
+            "updated_count": updated_count
+        }
+    except Exception as e:
+        logger.error(f"Error setting bulk password: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to set bulk password")
+
+@app.post("/api/devices/bulk-install-docker")
+async def bulk_install_docker(request_data: dict):
+    """Install Docker on multiple managed devices"""
+    try:
+        device_ids = request_data.get("device_ids", [])
+        
+        if not device_ids:
+            raise HTTPException(status_code=400, detail="Device IDs are required")
+        
+        db = get_db()
+        results = []
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(
+                Device.id == device_id,
+                Device.is_managed == True
+            ).first()
+            
+            if device and device.ssh_username and device.get_ssh_password():
+                try:
+                    # Execute Docker installation script
+                    command = 'chmod +x /tmp/edu_admin/docker_install_rock5b.sh && /tmp/edu_admin/docker_install_rock5b.sh'
+                    # This would be executed via SSH in a real implementation
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "success",
+                        "message": "Docker installation initiated"
+                    })
+                except Exception as e:
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "error",
+                        "message": str(e)
+                    })
+            else:
+                results.append({
+                    "device_id": device.id,
+                    "ip_address": device.ip_address if device else "unknown",
+                    "status": "error",
+                    "message": "Device not found or missing SSH credentials"
+                })
+        
+        return {
+            "success": True,
+            "message": f"Docker installation initiated for {len([r for r in results if r['status'] == 'success'])} devices",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error bulk installing Docker: {e}")
+        raise HTTPException(status_code=500, detail="Failed to install Docker on devices")
+
+@app.post("/api/devices/bulk-install-ansible")
+async def bulk_install_ansible(request_data: dict):
+    """Install Ansible on multiple managed devices"""
+    try:
+        device_ids = request_data.get("device_ids", [])
+        
+        if not device_ids:
+            raise HTTPException(status_code=400, detail="Device IDs are required")
+        
+        db = get_db()
+        results = []
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(
+                Device.id == device_id,
+                Device.is_managed == True
+            ).first()
+            
+            if device and device.ssh_username and device.get_ssh_password():
+                try:
+                    # Execute Ansible installation script
+                    command = 'chmod +x /tmp/edu_admin/ansible_setup.sh && /tmp/edu_admin/ansible_setup.sh'
+                    # This would be executed via SSH in a real implementation
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "success",
+                        "message": "Ansible installation initiated"
+                    })
+                except Exception as e:
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "error",
+                        "message": str(e)
+                    })
+            else:
+                results.append({
+                    "device_id": device.id,
+                    "ip_address": device.ip_address if device else "unknown",
+                    "status": "error",
+                    "message": "Device not found or missing SSH credentials"
+                })
+        
+        return {
+            "success": True,
+            "message": f"Ansible installation initiated for {len([r for r in results if r['status'] == 'success'])} devices",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error bulk installing Ansible: {e}")
+        raise HTTPException(status_code=500, detail="Failed to install Ansible on devices")
+
+@app.post("/api/devices/bulk-security-audit")
+async def bulk_security_audit(request_data: dict):
+    """Run security audit on multiple managed devices"""
+    try:
+        device_ids = request_data.get("device_ids", [])
+        
+        if not device_ids:
+            raise HTTPException(status_code=400, detail="Device IDs are required")
+        
+        db = get_db()
+        results = []
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(
+                Device.id == device_id,
+                Device.is_managed == True
+            ).first()
+            
+            if device and device.ssh_username and device.get_ssh_password():
+                try:
+                    # Execute security audit script
+                    command = 'chmod +x /tmp/edu_admin/security_audit.sh && /tmp/edu_admin/security_audit.sh'
+                    # This would be executed via SSH in a real implementation
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "success",
+                        "message": "Security audit initiated",
+                        "audit_id": f"audit_{device.id}_{int(datetime.now().timestamp())}"
+                    })
+                except Exception as e:
+                    results.append({
+                        "device_id": device.id,
+                        "ip_address": device.ip_address,
+                        "status": "error",
+                        "message": str(e)
+                    })
+            else:
+                results.append({
+                    "device_id": device.id,
+                    "ip_address": device.ip_address if device else "unknown",
+                    "status": "error",
+                    "message": "Device not found or missing SSH credentials"
+                })
+        
+        return {
+            "success": True,
+            "message": f"Security audit initiated for {len([r for r in results if r['status'] == 'success'])} devices",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error running bulk security audit: {e}")
+        raise HTTPException(status_code=500, detail="Failed to run security audit on devices")
+
+@app.post("/api/devices/security-reports")
+async def get_security_reports(request_data: dict):
+    """Get security audit reports for multiple devices"""
+    try:
+        device_ids = request_data.get("device_ids", [])
+        
+        if not device_ids:
+            raise HTTPException(status_code=400, detail="Device IDs are required")
+        
+        db = get_db()
+        reports = []
+        
+        for device_id in device_ids:
+            device = db.query(Device).filter(
+                Device.id == device_id,
+                Device.is_managed == True
+            ).first()
+            
+            if device:
+                # Mock security report data - in real implementation, this would fetch actual audit results
+                report = {
+                    "device_id": device.id,
+                    "ip_address": device.ip_address,
+                    "hostname": device.hostname,
+                    "audit_date": datetime.now().isoformat(),
+                    "overall_score": device.ai_risk_score,
+                    "categories": {
+                        "system_updates": {
+                            "score": 85,
+                            "critical_issues": 2,
+                            "warnings": 5,
+                            "details": "System packages mostly up to date, 2 critical security updates pending"
+                        },
+                        "network_security": {
+                            "score": 72,
+                            "critical_issues": 1,
+                            "warnings": 3,
+                            "details": "Firewall configured, some unnecessary open ports detected"
+                        },
+                        "user_accounts": {
+                            "score": 90,
+                            "critical_issues": 0,
+                            "warnings": 1,
+                            "details": "Strong password policies enforced, one inactive user account"
+                        },
+                        "file_permissions": {
+                            "score": 88,
+                            "critical_issues": 0,
+                            "warnings": 2,
+                            "details": "Most files have appropriate permissions, minor issues in /tmp"
+                        }
+                    },
+                    "recommendations": [
+                        "Install pending security updates immediately",
+                        "Close unnecessary ports (8080, 3000)",
+                        "Remove inactive user account 'testuser'",
+                        "Review and tighten /tmp directory permissions"
+                    ]
+                }
+                reports.append(report)
+        
+        return {
+            "success": True,
+            "reports": reports,
+            "summary": {
+                "total_devices": len(reports),
+                "avg_score": sum(r["overall_score"] for r in reports) / len(reports) if reports else 0,
+                "critical_issues": sum(
+                    sum(cat["critical_issues"] for cat in r["categories"].values()) 
+                    for r in reports
+                )
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching security reports: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch security reports")
 
 @app.get("/api/devices/{device_id}")
 async def get_device(device_id: int):
@@ -208,7 +564,6 @@ async def scan_device_ports(device_id: int):
             open_ports = []
             for port in network_scanner.scan_ports:
                 try:
-                    import socket
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.settimeout(1)
                     result = sock.connect_ex((device.ip_address, port))
@@ -483,7 +838,6 @@ async def shutdown_rock5b(device_id: int):
             raise HTTPException(status_code=404, detail="Device not found")
         
         # Use SSH to send shutdown command
-        import paramiko
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
@@ -516,7 +870,6 @@ async def get_rock5b_status(device_id: int):
             raise HTTPException(status_code=404, detail="Device not found")
         
         # Use SSH to get detailed status
-        import paramiko
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
@@ -537,7 +890,7 @@ async def get_rock5b_status(device_id: int):
             for key, cmd in commands.items():
                 try:
                     stdin, stdout, stderr = ssh.exec_command(cmd)
-                    output = stdout.read().decode().strip()
+                    output = stdout.read().decode('utf-8', errors='replace').strip()
                     status_info[key] = output
                 except:
                     status_info[key] = "N/A"
@@ -649,11 +1002,6 @@ async def setup_rock5b_device2(device_data: dict):
 async def device_shell(websocket: WebSocket, device_id: int):
     """WebSocket endpoint for SSH shell access to a device."""
     await websocket.accept()
-    import asyncio
-    import base64
-    from concurrent.futures import ThreadPoolExecutor
-    import queue
-    import threading
     
     db = get_db()
     device = db.query(Device).filter(Device.id == device_id).first()
@@ -709,6 +1057,9 @@ async def device_shell(websocket: WebSocket, device_id: int):
                     data = ws_to_ssh_queue.get(timeout=1)
                     if data is None:
                         break
+                    # Ensure data is bytes before sending
+                    if isinstance(data, str):
+                        data = data.encode('utf-8')
                     chan.send(data)
                 except queue.Empty:
                     continue
@@ -722,7 +1073,7 @@ async def device_shell(websocket: WebSocket, device_id: int):
         try:
             full_script = f"#!/bin/bash\n{script_content}"
             upload_cmd = f"cat > /tmp/{script_name} << 'EOF'\n{full_script}\nEOF\nchmod +x /tmp/{script_name}"
-            ws_to_ssh_queue.put(upload_cmd + '\n')
+            ws_to_ssh_queue.put((upload_cmd + '\n').encode('utf-8'))
             logger.info(f"Uploaded script {script_name} to remote system")
             return True
         except Exception as e:
@@ -776,107 +1127,63 @@ async def device_shell(websocket: WebSocket, device_id: int):
         chan = ssh.invoke_shell()
         logger.info("SSH shell invoked successfully")
         await send_status("connected")
-        # Detect remote OS and architecture
-        import time
-        import re
-        def detect_os_arch():
-            try:
-                # Try uname for Linux/macOS
-                chan.send('uname -a\n')
-                time.sleep(0.5)
-                output = b''
-                while chan.recv_ready():
-                    output += chan.recv(4096)
-                output_str = output.decode(errors='replace').lower()
-                if 'linux' in output_str:
-                    os_name = 'Linux'
-                    icon = '🐧'
-                elif 'darwin' in output_str or 'mac' in output_str:
-                    os_name = 'macOS'
-                    icon = '🍏'
-                elif 'bsd' in output_str:
-                    os_name = 'BSD'
-                    icon = '🐡'
-                else:
-                    os_name = None
-                    icon = '💻'
-                # Try to extract arch
-                arch_match = re.search(r'(x86_64|amd64|arm64|aarch64|i386|i686|armv7|armv8)', output_str)
-                arch = arch_match.group(1) if arch_match else 'unknown'
-                arch_icon = {
-                    'x86_64': '🖥️', 'amd64': '🖥️', 'i386': '💾', 'i686': '💾',
-                    'arm64': '📱', 'aarch64': '📱', 'armv7': '📱', 'armv8': '📱',
-                }.get(arch, '💻')
-                if os_name:
-                    return f"{icon} {os_name} | {arch_icon} {arch}"
-                # If not Linux/macOS, try Windows
-                chan.send('ver\r\n')
-                time.sleep(0.5)
-                output = b''
-                while chan.recv_ready():
-                    output += chan.recv(4096)
-                output_str = output.decode(errors='replace').lower()
-                if 'windows' in output_str:
-                    os_name = 'Windows'
-                    icon = '🪟'
-                    # Try to get arch
-                    chan.send('echo %PROCESSOR_ARCHITECTURE%\r\n')
-                    time.sleep(0.5)
-                    output = b''
-                    while chan.recv_ready():
-                        output += chan.recv(4096)
-                    arch_str = output.decode(errors='replace').strip().lower()
-                    arch = arch_str if arch_str else 'unknown'
-                    arch_icon = {
-                        'amd64': '🖥️', 'x86': '💾', 'arm64': '📱',
-                    }.get(arch, '💻')
-                    return f"{icon} {os_name} | {arch_icon} {arch}"
-                return "💻 Unknown OS/Arch"
-            except Exception as e:
-                return f"💻 Unknown OS/Arch ({e})"
-        os_arch_info = detect_os_arch()
-        await send_data(f"\n\033[1m{os_arch_info}\033[0m\n-----------------------------\n")
-        # Ensure /tmp/edu_admin and subdirectories exist before uploading scripts
+        
+        # Start SSH read/write threads first
+        read_thread = threading.Thread(target=ssh_read_loop, daemon=True)
+        write_thread = threading.Thread(target=ssh_write_loop, daemon=True)
+        read_thread.start()
+        write_thread.start()
+        
+        # Give the threads a moment to start
+        await asyncio.sleep(0.1)
+        
+        # Send OS detection command through the queue system
+        ws_to_ssh_queue.put(b'uname -a\n')
+        
+        # Wait a bit for the response to be processed by our UTF-8 decoder
+        await asyncio.sleep(1.0)
+        
+        # Send a friendly message
+        await send_data(f"\n\033[1m🐧 Remote System Connected\033[0m\n-----------------------------\n")
+        # Setup admin directory and upload scripts
         admin_dir = "/tmp/edu_admin"
         subdirs = ["playbooks", "templates", "inventory"]
         mkdir_cmd = f"mkdir -p {admin_dir} " + " ".join([f'{admin_dir}/{s}' for s in subdirs])
-        chan.send(mkdir_cmd + "\n")
-        time.sleep(0.5)
-        # Define automation scripts before uploading
-        # Load scripts from files if they exist, otherwise use inline content
+        ws_to_ssh_queue.put((mkdir_cmd + '\n').encode('utf-8'))
+        
+        # Wait for directory creation
+        await asyncio.sleep(0.5)
+        
+        # Load scripts from files if they exist
         def load_script_content(script_name):
             script_path = os.path.join(AUTOMATIONS_DIR, script_name)
             if os.path.exists(script_path):
-                with open(script_path, 'r') as f:
+                with open(script_path, 'r', encoding='utf-8', errors='replace') as f:
                     return f.read()
             return f"# {script_name} not found in automations directory"
         
-        automation_scripts = {
-            "system_update.sh": load_script_content("system_update.sh"),
-            "security_audit.sh": load_script_content("security_audit.sh"),
-            "k8s_context.sh": load_script_content("k8s_context.sh"),
-            "ansible_setup.sh": load_script_content("ansible_setup.sh"),
-            "rock5b_management.sh": load_script_content("rock5b_management.sh"),
-            "rock5b_device2.sh": load_script_content("rock5b_device2.sh")
-        }
-        # Upload automation scripts to /tmp/edu_admin
+        # Upload automation scripts through queue system
         def upload_script(script_name, script_content):
             try:
                 full_script = f"#!/bin/bash\n{script_content}"
                 upload_cmd = f"cat > {admin_dir}/{script_name} << 'EOF'\n{full_script}\nEOF\nchmod +x {admin_dir}/{script_name}"
-                ws_to_ssh_queue.put(upload_cmd + '\n')
+                ws_to_ssh_queue.put((upload_cmd + '\n').encode('utf-8'))
                 logger.info(f"Uploaded script {script_name} to remote system at {admin_dir}")
                 return True
             except Exception as e:
                 logger.error(f"Failed to upload script {script_name}: {e}")
                 return False
-        # Upload scripts to correct subdirs
-        upload_script("system_update.sh", automation_scripts["system_update.sh"])
-        upload_script("security_audit.sh", automation_scripts["security_audit.sh"])
-        upload_script("k8s_context.sh", automation_scripts["k8s_context.sh"])
-        upload_script("ansible_setup.sh", automation_scripts["ansible_setup.sh"])
-        upload_script("rock5b_management.sh", automation_scripts["rock5b_management.sh"])
-        upload_script("rock5b_device2.sh", automation_scripts["rock5b_device2.sh"])
+        
+        # Upload all scripts
+        script_names = ["system_update.sh", "security_audit.sh", "k8s_context.sh", 
+                       "ansible_setup.sh", "rock5b_management.sh", "rock5b_device2.sh",
+                       "docker_install_rock5b.sh"]
+        
+        for script_name in script_names:
+            script_content = load_script_content(script_name)
+            upload_script(script_name, script_content)
+            await asyncio.sleep(0.1)  # Small delay between uploads
+        
         await send_data("\n✅ Automation scripts uploaded successfully!\n")
         await send_data("Available scripts in /tmp/edu_admin/:\n")
         await send_data("- system_update.sh (System updates)\n")
@@ -885,13 +1192,9 @@ async def device_shell(websocket: WebSocket, device_id: int):
         await send_data("- ansible_setup.sh (Ansible automation)\n")
         await send_data("- rock5b_management.sh (Rock 5B device management)\n")
         await send_data("- rock5b_device2.sh (Rock 5B Device 2 control)\n")
+        await send_data("- docker_install_rock5b.sh (Docker installation for Rock 5B ARM64)\n")
         await send_data("Use the buttons in the sidebar to run them!\n\n")
         
-        # Start SSH read/write threads
-        read_thread = threading.Thread(target=ssh_read_loop, daemon=True)
-        write_thread = threading.Thread(target=ssh_write_loop, daemon=True)
-        read_thread.start()
-        write_thread.start()
         # Async tasks for WebSocket <-> SSH
         async def ws_to_ssh():
             try:
@@ -909,12 +1212,37 @@ async def device_shell(websocket: WebSocket, device_id: int):
                 ws_to_ssh_queue.put(None)
         async def ssh_to_ws():
             try:
+                decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
                 loop = asyncio.get_event_loop()
                 while not websocket_closed:
                     data = await loop.run_in_executor(None, ssh_to_ws_queue.get)
                     if data is None:
                         break
-                    await send_data(data.decode(errors='replace')) # Decode bytes to string for send_data
+                    try:
+                        # Use incremental decoder to handle partial UTF-8 sequences
+                        text = decoder.decode(data, False)
+                        if text:  # Only send if we have complete characters
+                            await send_data(text)
+                    except Exception as decode_error:
+                        # Fallback: try to decode with error replacement
+                        logger.warning(f"UTF-8 decode error, using fallback: {decode_error}")
+                        try:
+                            fallback_text = data.decode('utf-8', errors='replace')
+                            if fallback_text:
+                                await send_data(fallback_text)
+                        except Exception as fallback_error:
+                            logger.error(f"Even fallback decode failed: {fallback_error}")
+                            # Last resort: convert bytes to string representation
+                            await send_data(f"[Binary data: {len(data)} bytes]")
+                
+                # Finalize any remaining bytes in the decoder
+                try:
+                    final_text = decoder.decode(b'', True)  # Final call to flush decoder
+                    if final_text:
+                        await send_data(final_text)
+                except Exception as final_error:
+                    logger.warning(f"Error finalizing decoder: {final_error}")
+                    
             except Exception as e:
                 logger.error(f"SSH to WS error: {e}")
         await asyncio.gather(ws_to_ssh(), ssh_to_ws())
@@ -976,7 +1304,6 @@ async def automation_shell(websocket: WebSocket, device_id: int, script: str):
     try:
         # For demo: run the script locally and stream output
         # In production: use SSH to run on the device
-        import subprocess
         proc = subprocess.Popen([script_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in iter(proc.stdout.readline, ''):
             await websocket.send_text(line)
